@@ -1,0 +1,43 @@
+---
+title: "Bring your own auth"
+description: "Your users, your login, your database — Alyte only needs an attestation."
+---
+
+Your customers already have accounts with you. Alyte doesn't replace your auth
+or your user database — it plugs into them.
+
+## How it works
+
+1. A user is signed in **on your site**, with your auth.
+2. They want an AI agent to buy tickets for them.
+3. Your **server** attests them to Alyte (API token, `merchant:write`):
+
+```ts
+const s = await alyte.buyerSessions.mint({
+  merchantId: 'mrc_…',
+  email: user.email,
+});
+// → { buyerId: 'byr_…', redeemPath: '/buyer/redeem?token=…', expiresAt }
+```
+
+4. You redirect the user to `ALYTE_URL + s.redeemPath`.
+5. They arrive on the shop's authorize page already signed in, and grant their
+   agent a mandate: spending cap, validity window, optional event scope.
+
+## Properties worth knowing
+
+- **Single-use, short-lived.** The redeem link works once and expires in 15
+  minutes. Hashed at rest, rate-limited per email.
+- **Stable identity.** `buyerId` is deterministic per email — a user who arrives
+  via your attestation today and via the email magic-link fallback tomorrow is
+  the *same* buyer, with the same agents and mandates.
+- **Tenant-locked.** Your API token can only mint sessions into your own shops.
+- **The mandate is enforced by Alyte, not the agent.** A prompt-injected or
+  malfunctioning agent cannot exceed the cap or scope the buyer granted —
+  every check runs server-side.
+
+## Fallback: magic link
+
+No integration? Buyers can always use the shop page's built-in email magic
+link. The attestation flow above is the same machinery with the email step
+replaced by your session — which is why the identities converge.

@@ -1,0 +1,71 @@
+---
+title: "The agent buy path"
+description: "Discover → quote → hold → confirm. No amounts are ever sent — the agent pays a locked quote, inside the buyer's mandate."
+---
+
+This is the flow an AI agent walks to buy tickets, whether it speaks REST (shown
+here, wrapped by the `AlyteAgent` SDK client), MCP, or A2A — all three funnel
+into the same server-side policy engine.
+
+```ts
+import { AlyteAgent } from '@alyte/sdk';
+const agent = new AlyteAgent({ baseUrl: ALYTE_URL, token: AGENT_JWT });
+```
+
+## 1 · Discover
+
+```ts
+const { events } = await agent.discoverInventory(merchantId);
+```
+
+Every tier carries a live availability `state`. Two matter for scheduling:
+
+- `not_yet_on_sale` comes with a `retryAfter` (seconds) — schedule a retry for
+  the drop instead of polling.
+- `sold_out` may still change; the tier also links where a buyer can authorize
+  a standing agent for it.
+
+## 2 · Quote — the price lock
+
+```ts
+const quote = await agent.quote({ tierId, quantity: 2 });
+```
+
+The full breakdown (subtotal, tax, fees, the buyer's `chargeMinor`) is frozen
+until `expiresAt`. All amounts are **integer minor units**. This quote is the
+only place an amount exists — the agent never sends one.
+
+## 3 · Reserve — the oversell-proof hold
+
+```ts
+const hold = await agent.reserve({ tierId, quantity: 2, scheme: 'visa', geo: 'DE' });
+```
+
+Holds are atomic against inventory and auto-release if not confirmed in time.
+If the merchant caps quantity per purchase below your ask, the reserve is
+**refused** unless you pass `allowPartial: true` — only do that when your buyer
+has accepted receiving fewer tickets; a partial hold reports
+`requestedQuantity` and `partialReason`.
+
+## 4 · Confirm — pay the locked quote
+
+```ts
+const outcome = await agent.confirm(hold.id,
+  { quoteId: quote.id, instrumentToken, scheme: 'visa', geo: 'DE' },
+  { idempotencyKey: crypto.randomUUID() });
+```
+
+- **Always pass a stable `idempotencyKey`** per purchase intent. Retries with
+  the same key can never double-charge — even across crashes.
+- `outcome.status` is `settled`, or `sca_required` (the buyer must approve a
+  challenge — resume with `agent.resolveSca(continueToken, 'approved')`).
+- A refusal throws with a stable error `code` — see
+  [Errors](/guides/errors). A mandate refusal (spend cap, scope) means the
+  buyer's limits said no: surface it, don't retry.
+
+## What the server enforces (so you don't have to)
+
+Spending cap, mandate scope and expiry, instrument ownership, scheme and geo
+restrictions, per-purchase quantity caps, and inventory — all checked
+server-side on every call. A compromised or confused agent cannot exceed what
+the buyer granted; the worst it can do is be refused.

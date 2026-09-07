@@ -1,0 +1,60 @@
+---
+title: "Getting discovered"
+description: "Opt in, and agents can find what you sell — a public shop window, an agent-readable product feed, and structured page data."
+---
+
+Discovery is **off by default**. Your catalog is yours to publish; nothing is
+public until you flip the switch.
+
+## Opt in
+
+Console: **Public discovery → "Let agents discover this shop"** — or from code:
+
+```ts
+await alyte.updateShopDiscovery(merchant.id, {
+  discoverable: true,
+  imageUrl: 'https://your.cdn/shop.png',   // shown in agent product feeds
+});
+```
+
+## What opting in publishes
+
+Three surfaces, all serving only what a shop window shows — events, tiers,
+prices, live availability *state*. Never stock counts, payment-provider data,
+or anything about your buyers.
+
+### 1 · The shop window
+
+```
+GET /v1/discovery/merchants/{merchantId}
+```
+
+Unauthenticated JSON: your events and tiers with prices and live availability
+(`on_sale`, `not_yet_on_sale` with a retry hint, `sold_out`), plus the link
+where a buyer authorizes an agent.
+
+### 2 · The product feed (ChatGPT / ACP)
+
+```
+GET /v1/discovery/merchants/{merchantId}/feed.jsonl
+```
+
+An [Agentic Commerce Protocol](https://developers.openai.com/commerce) product
+feed — one item per ticket tier, in the exact shape OpenAI's systems ingest.
+Supports `ETag`/`If-None-Match`, so polling it is nearly free.
+
+<Note>
+OpenAI does not crawl for feeds. To appear in ChatGPT, enroll in their
+merchant program and submit your feed URL — the feed itself is ready as-is.
+</Note>
+
+### 3 · Structured page data
+
+Your shop's buyer page embeds schema.org `Event`/`Offer` JSON-LD, so
+crawl-based assistants (Gemini, Perplexity, browsing agents) can read your
+catalog with no protocol integration at all.
+
+## Opting out
+
+Untick the box (or set `discoverable: false`). All three surfaces return to
+404 immediately — indistinguishable from a shop that never existed.

@@ -1,47 +1,70 @@
 ---
 title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+description: "Shop live and sellable in five calls."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+## 1 · Get an API token
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+In the Alyte console: **API keys → Mint**, scopes `merchant:read` + `merchant:write`.
+The token is shown once — keep it server-side; never ship it to a browser.
 
-## Prerequisites
+## 2 · Install the SDK
 
-Before you begin, you must have:
+```bash
+npm install @alyte/sdk   # zero dependencies, Node ≥ 18
+```
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+(Or call the REST API directly — the SDK is a thin typed client over it.)
 
-## Get started
+## 3 · Onboard
 
-<Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+```ts
+import { AlyteMerchant } from '@alyte/sdk';
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+const alyte = new AlyteMerchant({ baseUrl: ALYTE_URL, token: process.env.ALYTE_API_TOKEN });
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+// Your shop — your settlement identity. Money lands on YOUR PSP, never Alyte's.
+const { merchant } = await alyte.createShop({ name: 'Nova Live', geo: 'DE', currency: 'EUR' });
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
-</Steps>
+// Your own Stripe. The secret key is vaulted immediately — only an opaque
+// reference is ever stored or returned. The publishable key powers the
+// buyer card-capture iframe.
+await alyte.linkPsp(merchant.id, {
+  psp: { id: 'stripe', name: 'Stripe' },
+  isDefault: true,
+  secret: process.env.MY_STRIPE_SECRET_KEY,
+  publishableKey: process.env.MY_STRIPE_PUBLISHABLE_KEY,
+});
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+// Inventory. priceMinor is integer cents: 4900 = €49.00. Floats are refused.
+const { event } = await alyte.createEvent({
+  merchantId: merchant.id, title: 'Nova Live — Warsaw', startsAt: '2026-11-04T19:00:00Z',
+});
+const { tier } = await alyte.createTier({
+  eventId: event.id, title: 'General admission',
+  priceMinor: 4900, currency: 'EUR', kind: 'general', availableCount: 500,
+});
+```
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## 4 · Send a buyer to authorize their agent
+
+If your users are already signed in with **your** auth, attest them — no email round-trip:
+
+```ts
+const s = await alyte.buyerSessions.mint({ merchantId: merchant.id, email: user.email });
+res.redirect(ALYTE_URL + s.redeemPath);   // single-use link, 15-minute TTL
+```
+
+They land on the shop's authorize page: pick or bring an agent, set a spending
+cap. Alyte enforces that cap server-side on every purchase the agent attempts.
+
+## 5 · Watch the money arrive
+
+Payments settle on your PSP. Alyte gives you the audit trail:
+
+```ts
+const { payments } = await alyte.listPayments();
+```
+
+That's the whole loop. For agent-side integration (discover → quote → hold →
+confirm), see the API reference — the same flow the `AlyteAgent` client wraps.

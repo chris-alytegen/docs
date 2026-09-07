@@ -1,0 +1,31 @@
+---
+title: "Errors"
+description: "Stable machine-readable codes; retryable and terminal failures are distinguished — never normalize them."
+---
+
+Every error response has one shape:
+
+```json
+{ "error": { "code": "spend_cap_exceeded", "message": "…", "details": { } } }
+```
+
+`code` is **stable** — branch on it, not on the message. The SDK surfaces it as
+`AlyteApiError` (`status`, `code`, `message`, `details`).
+
+## How to treat failures
+
+| Class | Examples | What to do |
+|---|---|---|
+| **Mandate refusals** | spend cap, scope, expiry, ownership | The buyer's limits said no. Surface to the buyer; **do not retry** — the answer won't change. |
+| **Catalog refusals** | not on sale yet, quantity cap, geo/scheme restriction, sold out | Terminal for this request. `not_yet_on_sale` includes a `retryAfter` — schedule, don't poll. |
+| **Validation** (`400`) | float prices, malformed bodies | Fix the request. Money is integer minor units, always. |
+| **Auth** (`401`/`403`) | expired token, missing scope, revoked key | Re-authenticate or request the right scope. Revocation is server-side and immediate. |
+| **Indeterminate payment outcomes** | PSP timeout mid-charge | The charge may have succeeded. Alyte **halts rather than guesses** — it will never retry a possibly-succeeded charge into a double-charge, and neither should you. Re-check the payment's status; your `idempotencyKey` makes a safe re-confirm possible. |
+
+## The two rules that matter
+
+1. **Idempotency**: send a stable `Idempotency-Key` on every confirm. It is the
+   reason a timeout is an inconvenience instead of a double charge.
+2. **Don't normalize errors**: a hard decline and a retryable network blip are
+   different codes on purpose. Collapsing them into one generic failure is how
+   retry storms happen.
