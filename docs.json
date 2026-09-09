@@ -20,7 +20,9 @@
         "groups": [
           {
             "group": "Getting started",
-            "pages": ["index", "quickstart"]
+            "pages": [
+              "index",
+              "guides/quickstart""]
           },
           {
             "group": "Integration guides",
