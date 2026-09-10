@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Alyte Developers",
-  "description": "Sell tickets to AI shopping agents — safely. Alyte enforces the buyer's mandate server-side and settles on your own PSP.",
+  "description": "Sell tickets to AI shopping agents \u2014 safely. Alyte enforces the buyer's mandate server-side and settles on your own PSP.",
   "colors": {
     "primary": "#0F766E",
     "light": "#2DD4BF",
@@ -22,7 +22,9 @@
             "group": "Getting started",
             "pages": [
               "index",
-              "guides/quickstart""]
+              "guides/getting-access",
+              "guides/quickstart"
+            ]
           },
           {
             "group": "Integration guides",
@@ -30,7 +32,8 @@
               "guides/buyer-sessions",
               "guides/agent-buy",
               "guides/discovery",
-              "guides/errors"
+              "guides/errors",
+              "guides/inventory-and-fulfilment"
             ]
           }
         ]
@@ -47,7 +50,16 @@
     ]
   },
   "contextual": {
-    "options": ["copy", "view", "chatgpt", "claude", "perplexity", "mcp", "cursor", "vscode"]
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
   },
   "footer": {
     "socials": {}

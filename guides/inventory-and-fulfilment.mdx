@@ -1,0 +1,51 @@
+---
+title: "Inventory & fulfilment"
+description: "Who owns the ticket count, how to fulfil agent sales, and the polling contract — for merchants with their own inventory system."
+---
+
+If Alyte is your **only** sales channel, skip this page — list your stock as
+`availableCount` and Alyte's atomic holds make overselling impossible.
+
+If you have your **own** inventory system (your site sells tickets too), read
+on: two systems now hold a count, and the contract matters.
+
+## The ownership contract
+
+- **Your system is authoritative for total stock.** Alyte's `availableCount`
+  on a tier is the **allocation you've released to the agent channel** — think
+  of it as tickets you've consigned, not a mirror of your whole inventory.
+- **Alyte is authoritative within its allocation.** Holds and settlements
+  against that allocation are atomic and oversell-proof on Alyte's side; a
+  settled Alyte payment is a sold ticket you must honour.
+- **You reconcile the two** by writing availability back (PATCH the tier's
+  `availableCount`) as your own sales consume shared stock.
+
+The safe pattern: **allocate conservatively, write back often.** A small
+dedicated allocation (even 10–20% of stock) eliminates the cross-channel race
+in practice; the write-back loop keeps the allocation honest.
+
+## Fulfilment: the polling contract
+
+Until push webhooks ship (they're on the roadmap), fulfilment is a poll:
+
+```
+GET /v1/integration/payments?since=<ISO timestamp>&limit=200
+```
+
+- Ordered **newest first by `createdAt`**; `since` returns only payments
+  created strictly after that instant — track the newest `createdAt` you've
+  processed and pass it back.
+- **Idempotency is yours**: dedupe by `intentId`. A payment you've already
+  fulfilled must be a no-op.
+- Fulfil on `status: "authorized"` (settled). Do **not** fulfil pending or
+  refused rows.
+- A sensible poll interval is 10–30s; the endpoint is cheap and reads are
+  tenant-scoped.
+
+## If your local stock can't cover a settled payment
+
+That's the cross-channel race (you sold the last seats on your site between
+polls). Don't oversell locally, and don't ignore the Alyte sale — the buyer
+paid. Flag it for manual resolution (refund via your PSP, or reallocate),
+and shrink the window by writing availability back more aggressively. The
+allocation pattern above makes this case rare to impossible.

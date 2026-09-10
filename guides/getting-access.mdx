@@ -1,0 +1,45 @@
+---
+title: "Getting access"
+description: "How a merchant gets a console login, an API token, and which environment to point at."
+---
+
+Alyte is currently **invite-onboarded**: there is no self-serve signup yet.
+Here's the path from zero to a working API token.
+
+## 1 · Get a console login
+
+Contact Alyte (your point of contact, or hello@alyte — whoever sent you here)
+with the email addresses of the people who need console access. You'll receive
+a **WorkOS invitation email**; accepting it creates your login and attaches you
+to your organisation (your *tenant* — the isolation boundary all your data
+lives inside).
+
+## 2 · Know your environment
+
+| Environment | Base URL | What it's for |
+|---|---|---|
+| **Sandbox** | `https://alyte-sandbox-f365cfb3ma-ey.a.run.app` | Integration builds and tests. Stripe **test** keys, no real money. Self-serve API keys. |
+| Production | *(not yet public)* | Live keys are gated: your tenant must be approved for go-live by Alyte before the console will mint one. |
+
+Everything in these docs works against sandbox. The API surface is identical.
+
+## 3 · Mint an API token
+
+Console → **API keys** → mint with the scopes you need:
+
+- `merchant:read` — catalog and payments reads
+- `merchant:write` — catalog writes, PSP links, buyer-session minting
+
+The token is shown **once**. It's a server-to-server secret: env var or secret
+manager, never a browser, never a repo. Revoking a key in the console kills its
+tokens immediately (server-side check, not expiry).
+
+## 4 · Connect your PSP
+
+Console → your shop → **Connect a PSP**: paste your Stripe **secret key** and
+**publishable key** — copy both from the *same* API-keys page of the same
+Stripe account (a mismatched pair is the most common integration failure; the
+card-capture window won't load). The secret is vaulted immediately — Alyte
+stores only an opaque reference.
+
+From here, the [Quickstart](/guides/quickstart) takes over.
