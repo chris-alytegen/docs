@@ -31,8 +31,13 @@ Console → **API keys** → mint with the scopes you need:
 - `merchant:write` — catalog writes, PSP links, buyer-session minting
 
 The token is shown **once**. It's a server-to-server secret: env var or secret
-manager, never a browser, never a repo. Revoking a key in the console kills its
-tokens immediately (server-side check, not expiry).
+manager, never a browser, never a repo.
+
+**Lifecycle:** API tokens are long-lived machine credentials (one-year outer
+bound; the mint response's `expiresAt` says exactly when). The working control
+is **revocation**: deleting a key in the console kills its tokens immediately —
+a server-side check on every request, not token expiry. Rotate by minting a
+new key, deploying it, then revoking the old one.
 
 ## 4 · Connect your PSP
 
