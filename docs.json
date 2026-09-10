@@ -30,6 +30,7 @@
             "group": "Integration guides",
             "pages": [
               "guides/buyer-sessions",
+              "guides/embedded-authorize",
               "guides/agent-buy",
               "guides/discovery",
               "guides/errors",

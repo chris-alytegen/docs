@@ -1,0 +1,64 @@
+---
+title: "Embedded authorize"
+description: "Open the agent-authorization page in a modal on your own site — allowlist-framed, origin-checked messaging, no redirect."
+---
+
+By default the authorize page **refuses to be framed** (it's where users grant
+spending authority — clickjacking matters). A merchant can register **one**
+origin that may embed it; everything below hangs off that single trust anchor.
+
+## 1 · Register your embed origin
+
+```
+PATCH /v1/integration/merchants/{merchantId}
+{ "embedOrigin": "https://yourshop.example" }
+```
+
+Exactly one origin: https, no path (`null` clears it). Once set, the authorize
+page serves `frame-ancestors 'self' https://yourshop.example` and drops
+`X-Frame-Options` — your iframe renders; everyone else's stays blocked.
+
+## 2 · Frame the redeem URL, not the authorize URL
+
+Mint the buyer session server-side ([Bring your own auth](/guides/buyer-sessions)),
+then use the **redeemPath as the iframe `src`**:
+
+```js
+const { redeemPath } = await alyte.buyerSessions.mint({ merchantId, email: user.email });
+iframe.src = ALYTE_URL + redeemPath;   // redeem sets the session cookie INSIDE the frame, then forwards
+```
+
+This ordering matters: inside your page, Alyte's session cookie is third-party.
+Alyte sets it `SameSite=None; Secure; Partitioned` for iframe navigations — but
+only a redeem that *happens in the frame* puts the session where the framed
+page can see it. Redeeming in a top-level tab and then framing the authorize
+URL will not share the session.
+
+## 3 · Listen for completion
+
+The embedded page posts to your window — **only** to your registered origin:
+
+```js
+window.addEventListener('message', (e) => {
+  if (e.origin !== ALYTE_ORIGIN) return;                 // always origin-check
+  if (e.data?.type !== 'alyte:authorize') return;
+  if (e.data.event === 'completed') {
+    // { merchantId, agentId, mandateId, capMinor, currency }
+    closeModal(); refreshAgentsUI();
+  }
+  // event === 'ready' fires when the page loads — useful for a spinner.
+});
+```
+
+There is no `cancelled` event — your modal's close button owns dismissal.
+
+## Notes
+
+- **Card capture inside the modal**: the page's Stripe Elements iframe runs at
+  one extra frame depth. Validate it once in a staging embed before enabling in
+  production; if your stack misbehaves, fall back to the redirect flow for the
+  add-card step only.
+- The redirect flow keeps working unchanged — treat embedding as progressive
+  enhancement.
+- Browser support: the partitioned-cookie flow requires a current
+  Chrome/Edge/Firefox/Safari; very old browsers fall back to redirect.
