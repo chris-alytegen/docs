@@ -1,0 +1,104 @@
+---
+title: "Webhooks"
+description: "Signed payment.settled push to your server — polling becomes the fallback"
+---
+
+When an agent's purchase settles, Alyte can push a signed `payment.settled` event to your server the moment it happens. Polling `GET /v1/integration/payments?since=…` keeps working and remains the documented catch-up path — webhooks are an upgrade, not a replacement. Keep the poller running at a relaxed cadence as your safety net.
+
+## Register an endpoint
+
+```bash
+curl -X POST https://<alyte-host>/v1/integration/webhooks \
+  -H "Authorization: Bearer $ALYTE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "url": "https://yourshop.example/api/alyte/webhook" }'
+```
+
+```json
+{
+  "webhook": { "id": "whe_1a2b3c4d5e6f", "url": "https://yourshop.example/api/alyte/webhook", "status": "active" },
+  "secret": "whsec_…"
+}
+```
+
+<Warning>
+The `secret` is shown **only in this response**. Store it like a password (an environment secret, not your database in plaintext). Listing endpoints never returns it; if you lose it, delete the endpoint and register a new one.
+</Warning>
+
+URLs must be `https` (localhost is allowed for development). Each tenant can have at most **3 active endpoints**. `GET /v1/integration/webhooks` lists yours; `DELETE /v1/integration/webhooks/:id` disables one — delivery stops immediately.
+
+## The delivery
+
+Each delivery is a `POST` with three headers and a JSON body:
+
+```http
+POST /api/alyte/webhook HTTP/1.1
+alyte-event: payment.settled
+alyte-delivery: whd_9f8e7d6c5b4a
+alyte-signature: t=1757600000,v1=6c8a…e2f1
+Content-Type: application/json
+```
+
+```json
+{
+  "id": "whd_9f8e7d6c5b4a",
+  "type": "payment.settled",
+  "eventId": "pi_4336fd3a21b04c…",
+  "createdAt": "2026-09-11T10:45:00.000Z",
+  "data": {
+    "intentId": "pi_4336fd3a21b04c…",
+    "merchantId": "mrc_39396bf1-6",
+    "amountMinor": 14900,
+    "currency": "EUR",
+    "status": "authorized",
+    "pspId": "stripe",
+    "scheme": "visa",
+    "source": "buyer-ui",
+    "createdBy": "agt_0582d773…",
+    "createdAt": "2026-09-11T10:44:59.000Z"
+  }
+}
+```
+
+`data` is the **same payment row shape** your poller reads from `/v1/integration/payments` — one parser serves both paths.
+
+## Verify the signature
+
+The signature is an HMAC-SHA256 over the **raw request body**, prefixed with the timestamp — the same shape as Stripe's, so an existing verifier ports directly:
+
+```
+alyte-signature: t=<unix-seconds>,v1=hex( hmac_sha256( secret, "<t>.<raw body>" ) )
+```
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifyAlyteSignature(rawBody: string, header: string, secret: string, toleranceSec = 300): boolean {
+  const t = /t=(\d+)/.exec(header)?.[1];
+  const v1 = /v1=([0-9a-f]+)/.exec(header)?.[1];
+  if (!t || !v1) return false;
+  if (Math.abs(Date.now() / 1000 - Number(t)) > toleranceSec) return false; // replay window
+  const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+  return expected.length === v1.length && timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+}
+```
+
+<Note>
+Verify against the **raw** body bytes, before any JSON parsing or re-serialization — a re-stringified body will not match. Most frameworks need a raw-body route or content-type parser for the webhook path.
+</Note>
+
+## Delivery semantics
+
+- **At-least-once.** A settle durably enqueues the event, then delivery is attempted immediately and retried with exponential backoff (30s doubling, capped at 1h, up to 10 attempts) on the sweep tick. Any non-2xx response, timeout, or connection failure counts as a failed attempt.
+- **Dedupe by `eventId`.** Retries and edge cases can deliver the same event twice. `eventId` is the payment's `intentId` — process each `eventId` once (the same discipline your poller already uses).
+- **Answer fast.** Respond `2xx` as soon as you've recorded the event; do your fulfilment work asynchronously. Slow handlers risk the 10-second delivery timeout and a redundant retry.
+- **Disabled means stopped.** Deleting an endpoint stops deliveries immediately, including queued retries.
+
+## Keep the poller as the fallback
+
+Webhooks tell you *now*; the poller guarantees *eventually*. The recommended integration:
+
+1. Webhook receiver verifies, records by `eventId`, fulfils.
+2. Poller runs every few minutes with `?since=<your newest createdAt>`, fulfilling anything the webhook path missed — deduped by the same `intentId` key.
+
+That pair gives you real-time fulfilment with no single point of failure.

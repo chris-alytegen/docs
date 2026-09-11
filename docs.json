@@ -34,7 +34,8 @@
               "guides/agent-buy",
               "guides/discovery",
               "guides/errors",
-              "guides/inventory-and-fulfilment"
+              "guides/inventory-and-fulfilment",
+              "guides/webhooks"
             ]
           }
         ]
