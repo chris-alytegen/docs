@@ -1,0 +1,45 @@
+---
+title: "Conversational shopfront"
+description: "Wire a chat assistant to agent-governed buying — the chat proposes, the buyer disposes"
+---
+
+A chat assistant on your shop can answer questions, recommend events, and hand the buyer straight into an agent-governed purchase. This guide is the contract and the wiring for that pattern, proven on a live integration.
+
+## The one rule that shapes everything
+
+**Your chat can never spend. The buyer always fires the purchase, in their own session.**
+
+- Your API token is *structurally* spend-incapable — it carries scopes, never a cap, mandate, or instrument. There is no merchant-side endpoint that triggers a buyer's agent, and there never will be: a counterparty able to fire spend against a buyer's card is the exact confused-deputy shape the trust boundary forbids.
+- The buyer-session mint is an identity attestation, not a credential grant: your server vouches for who the buyer is, and the resulting session lands **only in the buyer's browser** (single-use redeem link → cookie). It never returns a bearer your server could replay.
+- So the working mental model, and the honest chat copy: **the chat proposes; the buyer disposes.** The assistant recommends and deep-links; the buyer's one tap — on a page showing *which agent, its remaining cap, and the price* — is the consent moment. That tap is a feature, not friction.
+
+## The wiring
+
+**1. Answer from the catalog.** Read your own inventory (`GET /v1/integration/catalog`) or the public shop window (`GET /v1/discovery/merchants/:id`) for events, tiers, prices, and availability `state`. The `state` field drives everything below.
+
+**2. Propose with a state-aware CTA.** Each tier is in one of a few states, and each state has one right hand-off:
+
+| Tier state | Chat proposal | Where the link goes |
+|---|---|---|
+| `on_sale` | "Buy it now with your agent" | The authorize page in checkout mode |
+| `not_yet_on_sale` | "Queue your agent to buy at the drop" | Same page — it renders the queue CTA |
+| `sold_out` | "Join the line — grab the next release" | Same page — it renders the line CTA |
+
+The hand-off is one URL, no special API: `/shop/{merchantId}/authorize?tier={tierId}&return={backToChatUrl}` (mint a buyer session first if your user is already signed in with you — their identity carries over, no second login). The page does the rest: it shows the buyer's eligible agents with live remaining-cap labels ("€203.00 left of €350.00"), renders the right verb for the tier's state, and enforces every limit server-side.
+
+**3. Close the loop in chat.** If you open the page in an embedded modal (see the [embedded authorization guide](/guides/embedded-authorize)), the page posts `{type: "alyte:authorize", event: "completed", outcome: "purchased" | "queued", tierId, chargeMinor?}` to your origin. Map it to honest chat copy: `purchased` → "Ticket confirmed 🎟️", `queued` → "You're in line — your agent buys the moment tickets appear." Never claim a purchase in chat before that event (or the webhook) arrives.
+
+**4. Fulfil and confirm.** Fulfilment is unchanged from any other channel: the [`payment.settled` webhook](/guides/webhooks) (or your poller) delivers the row with `tierId`, `quantity`, and `buyerRef` — the chat can then genuinely say the ticket is issued.
+
+**5. Show the line.** `GET /v1/integration/merchants/:id/insights` gives per-tier watch queues — "3 people have agents in line for Weekend plus" is strong social proof inside a conversation, and it's counts only, never identities.
+
+## The legitimate zero-click
+
+There *is* one zero-click purchase in this system, and chat is the perfect place to set it up: the **watch**. When the buyer consents once ("queue my agent for the drop"), that standing intent fires the instant the tier opens or restocks — no click at the moment of the drop, because the consent already happened. Chat proposes the watch; the buyer approves it in their session; the drop fires it automatically. That's the designed path to "your agent got them the second they went on sale."
+
+## Anti-patterns
+
+- **Don't proxy purchases through your server.** There is no supported way, and anything that appears to work is a bug we will close.
+- **Don't store or forward buyer session material.** The redeem link is single-use and browser-bound by design.
+- **Don't let the assistant claim it bought something.** It proposed; the buyer bought. Copy that pretends otherwise misrepresents who holds spending authority — and will contradict the page the buyer just saw.
+- **Don't infer products from amounts.** Fulfil on `tierId` + `quantity` from the payment row, exactly as in the [fulfilment guide](/guides/inventory-and-fulfilment).
