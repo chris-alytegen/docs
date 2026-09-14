@@ -55,12 +55,15 @@ Content-Type: application/json
     "scheme": "visa",
     "source": "buyer-ui",
     "createdBy": "agt_0582d773…",
-    "createdAt": "2026-09-11T10:44:59.000Z"
+    "createdAt": "2026-09-11T10:44:59.000Z",
+    "tierId": "tier_baa5722d-8",
+    "quantity": 1,
+    "buyerRef": "byr_7d31c2…"
   }
 }
 ```
 
-`data` is the **same payment row shape** your poller reads from `/v1/integration/payments` — one parser serves both paths.
+`data` is the **same payment row shape** your poller reads from `/v1/integration/payments` — one parser serves both paths. Fulfil deterministically on **`tierId` + `quantity`** (never by amount); `buyerRef` is a stable opaque buyer id, never an email.
 
 ## Verify the signature
 

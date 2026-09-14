@@ -24,9 +24,11 @@ The safe pattern: **allocate conservatively, write back often.** A small
 dedicated allocation (even 10–20% of stock) eliminates the cross-channel race
 in practice; the write-back loop keeps the allocation honest.
 
-## Fulfilment: the polling contract
+## Fulfilment: webhooks first, polling as the safety net
 
-Until push webhooks ship (they're on the roadmap), fulfilment is a poll:
+The recommended shape is both: the [payment.settled webhook](/guides/webhooks)
+fulfils in real time, and a relaxed poll catches anything missed. Both carry
+the same row shape.
 
 ```
 GET /v1/integration/payments?since=<ISO timestamp>&limit=200
@@ -35,12 +37,34 @@ GET /v1/integration/payments?since=<ISO timestamp>&limit=200
 - Ordered **newest first by `createdAt`**; `since` returns only payments
   created strictly after that instant — track the newest `createdAt` you've
   processed and pass it back.
+- **Fulfil on `status: "authorized"`** — for ticketing that's terminal: the
+  seat is sold, the buyer's authority consumed, and the charge is captured to
+  your PSP moments later. Do **not** fulfil `pending`, `declined`, or `error`
+  rows.
+- **Fulfil deterministically**: every settled row names **`tierId`** and
+  **`quantity`** — issue exactly that, never infer the product from the
+  amount. `buyerRef` is a stable opaque buyer id (`byr_…`, never an email);
+  map it to your own customer record at buyer-session mint time if you need
+  contact details.
 - **Idempotency is yours**: dedupe by `intentId`. A payment you've already
   fulfilled must be a no-op.
-- Fulfil on `status: "authorized"` (settled). Do **not** fulfil pending or
-  refused rows.
+- **Cursor discipline**: a row can read `pending` for a second or two before
+  its PSP result lands. Never advance your `since` cursor past a non-terminal
+  row (or re-scan a small lookback window) — otherwise a payment that turns
+  `authorized` after your poll is skipped forever. Webhooks have no such race:
+  they only fire once the payment is authorized.
 - A sensible poll interval is 10–30s; the endpoint is cheap and reads are
   tenant-scoped.
+
+## Demand signal: who's waiting to buy
+
+`GET /v1/integration/merchants/:id/insights` returns agent adoption for your
+account (`total`, `readyToBuy`, …) and per-tier watch queues — how many buyers
+have an agent queued for a drop or waiting in line for a sold-out release
+(`{ tierId, tierTitle, eventTitle, queued, fired, failed, … }`). Counts only,
+never buyer identities. `queued` is the live number ("3 in line"); the other
+buckets are history. It's designed to be shown on your event pages as social
+proof — a queue button converts better when it says how long the line is.
 
 ## If your local stock can't cover a settled payment
 
