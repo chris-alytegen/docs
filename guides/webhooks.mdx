@@ -90,6 +90,30 @@ function verifyAlyteSignature(rawBody: string, header: string, secret: string, t
 Verify against the **raw** body bytes, before any JSON parsing or re-serialization — a re-stringified body will not match. Most frameworks need a raw-body route or content-type parser for the webhook path.
 </Note>
 
+## Test your endpoint before a real purchase
+
+```bash
+curl -X POST https://<alyte-host>/v1/integration/webhooks/whe_1a2b3c4d5e6f/test \
+  -H "Authorization: Bearer $ALYTE_API_TOKEN"
+```
+
+Sends a real, signed delivery through the same pipeline — so verifying it proves your signature check and raw-body handling work before any money is involved.
+
+<Warning>
+The test event's type is **`webhook.test`**, not `payment.settled`, and it carries no payment fields. Your fulfilment path must branch on `type` and ignore anything that is not `payment.settled` — never issue goods on a test.
+</Warning>
+
+## Rotate a leaked secret
+
+If a signing secret is exposed (a log, a screenshot, a shared terminal), rotate it rather than deleting and re-registering — the endpoint id and any queued retries survive:
+
+```bash
+curl -X POST https://<alyte-host>/v1/integration/webhooks/whe_1a2b3c4d5e6f/rotate-secret \
+  -H "Authorization: Bearer $ALYTE_API_TOKEN"
+```
+
+Returns a new `whsec_…` **once**. The old secret stops verifying immediately, so deploy the new one promptly; deliveries attempted in between fail signature verification on your side and are retried, arriving correctly once the new secret is live.
+
 ## Delivery semantics
 
 - **At-least-once.** A settle durably enqueues the event, then delivery is attempted immediately and retried with exponential backoff (30s doubling, capped at 1h, up to 10 attempts) on the sweep tick. Any non-2xx response, timeout, or connection failure counts as a failed attempt.
