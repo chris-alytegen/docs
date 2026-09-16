@@ -65,6 +65,41 @@ Content-Type: application/json
 
 `data` is the **same payment row shape** your poller reads from `/v1/integration/payments` — one parser serves both paths. Fulfil deterministically on **`tierId` + `quantity`** (never by amount); `buyerRef` is a stable opaque buyer id, never an email.
 
+## `watch.failed` — when an agent tried and could not buy
+
+A queued purchase (buy-at-the-drop or join-the-line) that fires and is **refused**
+is terminal: it does not retry, and without a signal the buyer would never learn
+what happened. So every terminal failure pushes `watch.failed` through the same
+signed pipeline:
+
+```json
+{
+  "type": "watch.failed",
+  "eventId": "watchfail_wch_ab4ca107e83",
+  "data": {
+    "watchId": "wch_ab4ca107e83",
+    "agentId": "agt_43563ce6-2",
+    "buyerRef": "byr_edcbac9a…",
+    "merchantId": "mrc_39396bf1-6",
+    "tierId": "tier_baa5722d-8",
+    "quantity": 3,
+    "reason": { "code": "spend_cap_exceeded", "message": "would exceed spend cap: 0.00 spent + 561.00 > cap 200.00 EUR" },
+    "failedAt": "2026-09-16T20:09:21.000Z"
+  }
+}
+```
+
+Common `reason.code` values: `spend_cap_exceeded`, `mandate_invalid` (a quantity
+guardrail or scope rule), `not_found` (the saved card is no longer usable),
+`sale_ended`, `payment_refused`, `sca_required`. **Relay the message to the
+buyer** — it is written to be shown, and it tells them what to change (raise the
+limit, buy fewer, re-add the card).
+
+<Note>
+`watch.failed` is **not** a payment: nothing was charged and nothing must be
+fulfilled. Branch on `type` — fulfil only `payment.settled`.
+</Note>
+
 ## Verify the signature
 
 The signature is an HMAC-SHA256 over the **raw request body**, prefixed with the timestamp — the same shape as Stripe's, so an existing verifier ports directly:
