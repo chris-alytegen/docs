@@ -36,6 +36,7 @@
               "guides/discovery",
               "guides/errors",
               "guides/inventory-and-fulfilment",
+              "guides/lifecycle",
               "guides/webhooks"
             ]
           }
