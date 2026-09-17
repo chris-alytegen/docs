@@ -1,0 +1,186 @@
+---
+title: "Your first integration"
+description: "The shortest path to a working sale: hand off, get paid, fulfil, and diagnose it yourself when something breaks"
+---
+
+This is the whole integration, in the order you should build it. You do not need
+to understand the rest of the platform first — four steps, and each one is
+verifiable on its own before you move to the next.
+
+By the end you will be able to complete a fulfilled purchase, handle a refusal,
+and diagnose a delivery problem without asking us to look in our database.
+
+<Note>
+Everything here is implemented in one runnable file:
+[`sdk/examples/reference-merchant/server.ts`](https://github.com/Alytegen/alyte/blob/main/sdk/examples/reference-merchant/server.ts).
+Read that alongside this page — it is the same four steps, in the same order.
+</Note>
+
+## What you are building
+
+Alyte lets a buyer's AI agent purchase from your shop within limits the buyer
+set. Three facts shape every integration decision, so they are worth reading
+once before writing code:
+
+1. **Your API token cannot spend.** There is no merchant-side endpoint that
+   charges a buyer. You hand off; the buyer approves in their own session. This
+   is structural, not a permission you can be granted.
+2. **Money settles to your own PSP.** Alyte never holds your funds.
+3. **A refused purchase is usually refused before any payment exists.** That
+   shapes how you diagnose problems — see step 4.
+
+## Step 1 · Hand off to the buyer
+
+There is no API call here. You send the buyer to their authorize page:
+
+```
+https://{ALYTE_BASE_URL}/shop/{merchantId}/authorize?tier={tierId}&return={yourUrl}
+```
+
+That page shows which agent will buy, its remaining spend limit, and the price,
+then enforces every limit server-side. The buyer's one tap is the consent
+moment.
+
+If the buyer is already signed in with you, [mint a buyer
+session](/guides/buyer-sessions) first so their identity carries over and they
+don't sign in twice.
+
+**Verify this step:** open the link yourself. You should see your tier, and a
+button whose verb matches the tier's state (buy now, or queue for the drop).
+
+## Step 2 · Receive the purchase
+
+Register a webhook endpoint, then verify a delivery **before** a real sale
+depends on it:
+
+```bash
+# Register (returns the signing secret exactly once — store it now)
+curl -X POST $ALYTE_BASE_URL/v1/integration/webhooks \
+  -H "authorization: Bearer $ALYTE_API_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"url":"https://yourshop.example/hooks/alyte"}'
+
+# Send yourself a signed test delivery carrying no payment data
+curl -X POST $ALYTE_BASE_URL/v1/integration/webhooks/{id}/test \
+  -H "authorization: Bearer $ALYTE_API_TOKEN"
+```
+
+The SDK verifies and dispatches:
+
+```ts
+import { createWebhookHandler } from '@alyte/sdk';
+
+const onAlyteWebhook = createWebhookHandler({ secret: process.env.ALYTE_WEBHOOK_SECRET! }, {
+  onSettled:     async (payment, event) => { /* step 3 */ },
+  onWatchFailed: async (watch)         => { /* tell the buyer watch.reason.message */ },
+  onTest:        async ()              => console.log('signature verified'),
+});
+
+// Express — note express.raw, NOT express.json
+app.post('/hooks/alyte', express.raw({ type: 'application/json' }), async (req, res) => {
+  const r = await onAlyteWebhook(req.body.toString('utf8'), req.header('alyte-signature'));
+  res.status(r.status).send(r.ok ? 'ok' : r.error);
+});
+```
+
+<Warning>
+**Pass the raw bytes.** Verification is over the exact bytes we signed, so a
+JSON body parser will break a valid signature. This is the single most common
+setup mistake.
+</Warning>
+
+Failure behaviour, which you can rely on:
+
+| Situation | Result | What you should return |
+|---|---|---|
+| Bad or missing signature | `{ok: false, status: 401}`, your handler never runs | 401 |
+| Malformed body | `{ok: false, status: 400}` | 400 |
+| Your handler throws | The error propagates | 5xx, so we retry |
+| Unknown event type | Routed to `onUnknown`, not an error | 200 |
+
+**Verify this step:** the test delivery reaches your handler and verifies.
+
+## Step 3 · Fulfil exactly once
+
+Two rules.
+
+**Fulfil on `tierId` and `quantity`** — never by matching the amount back to a
+price. Prices change, and two tiers can cost the same.
+
+**Own your idempotency.** Deliveries are at-least-once: we retry until we see a
+2xx, so your handler can run twice for one sale — most often when it succeeded
+but the response never reached us.
+
+The SDK deliberately does not dedupe for you, because it cannot do it safely.
+The dangerous window is inside your own process: issue the ticket and crash
+before recording "handled" and a retry double-issues; record first and crash and
+the buyer paid for nothing. Only your database closes that window, by writing
+both facts in one transaction:
+
+```ts
+onSettled: async (payment, event) => {
+  await db.transaction(async (tx) => {
+    const claimed = await tx.query(
+      `INSERT INTO handled_events (event_id) VALUES ($1)
+       ON CONFLICT DO NOTHING RETURNING event_id`, [event.eventId]);
+    if (!claimed.rowCount) return;              // a retry — already fulfilled
+    await issueTickets(tx, payment.tierId, payment.quantity, payment.buyerRef);
+  });
+}
+```
+
+Claim first, inside the transaction, then do the work. If anything throws, the
+whole thing rolls back and the retry tries again cleanly.
+
+Dedupe on `event.eventId`, which is stable across retries — never on `event.id`,
+which is the delivery id and changes every attempt.
+
+**Verify this step:** send the same delivery twice; you should issue one ticket.
+
+## Step 4 · Diagnose it yourself
+
+When a buyer says "my agent didn't buy", start here:
+
+```bash
+curl $ALYTE_BASE_URL/v1/integration/watches/{watchId} \
+  -H "authorization: Bearer $ALYTE_API_TOKEN"
+```
+
+You get the watch's state, a plain-language summary, the typed refusal reason,
+whether the outcome is **terminal**, the linked payment if one happened, and
+`deliveries` — every webhook attempt with its status and error.
+
+Two things this answers that nothing else does:
+
+- **Refusals with no payment to look up.** The spend cap is checked before a
+  payment intent is created, so `spend_cap_exceeded`, a quantity guardrail, a
+  dead card, `sale_ended` and `agent_gone` all produce a failed watch and no
+  intent id. This is the entry point that always works.
+- **"Did the webhook reach me?"** `deliveries` distinguishes *we never sent it*
+  from *your endpoint rejected it* — check `status`, `attempts` and `lastError`
+  before suspecting your own code.
+
+A failed watch is **terminal**: it does not retry. That surprises people more
+than anything else in the system, so the response says so explicitly.
+
+<Note>
+`merchantFulfilment` and `buyerNotified` always read `unknown`, on purpose. We
+record webhook *delivery*, never whether you issued a ticket — we won't claim
+knowledge we don't have.
+</Note>
+
+If you have an intent id instead, `GET /v1/integration/payments/{intentId}`
+returns the same delivery history plus the reverse link to the watch.
+
+## You're done
+
+That is a complete integration. From here:
+
+- [Lifecycle](/guides/lifecycle) — every state a purchase can be in, and how to
+  tell the recurring support cases apart
+- [Inventory and fulfilment](/guides/inventory-and-fulfilment) — stock, holds,
+  and why oversell is impossible
+- [Webhooks](/guides/webhooks) — retries, secret rotation, event reference
+- [Errors](/guides/errors) — the typed taxonomy and which codes are retryable
+- [Conversational shopfront](/guides/conversational-shopfront) — if a chat
+  assistant is doing the hand-off

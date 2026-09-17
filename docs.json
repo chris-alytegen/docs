@@ -19,25 +19,36 @@
         "tab": "Guides",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Start here",
             "pages": [
               "index",
               "guides/getting-access",
-              "guides/quickstart"
+              "guides/quickstart",
+              "guides/first-integration"
             ]
           },
           {
-            "group": "Integration guides",
+            "group": "The buyer hand-off",
             "pages": [
               "guides/buyer-sessions",
               "guides/embedded-authorize",
-              "guides/conversational-shopfront",
-              "guides/agent-buy",
-              "guides/discovery",
-              "guides/errors",
+              "guides/conversational-shopfront"
+            ]
+          },
+          {
+            "group": "Selling and fulfilling",
+            "pages": [
               "guides/inventory-and-fulfilment",
+              "guides/webhooks",
               "guides/lifecycle",
-              "guides/webhooks"
+              "guides/errors"
+            ]
+          },
+          {
+            "group": "For agent developers",
+            "pages": [
+              "guides/agent-buy",
+              "guides/discovery"
             ]
           }
         ]
