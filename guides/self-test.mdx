@@ -39,7 +39,7 @@ console. Both run exactly the same checks.
 |---|---|
 | `shop_exists` | The shop id is yours |
 | `psp_linked` | A payment provider is linked **and its stored credential can actually be read** |
-| `catalog_sellable` | Something is buyable right now |
+| `catalog_sellable` | Something is buyable right now — or, if nothing has opened yet, that you simply have not launched (a warn, not a failure) |
 | `stock_present` | *(warn)* No tier is on sale while we see zero stock |
 | `webhook_registered` | You have at least one active endpoint |
 | `webhook_delivers` | **Every** active endpoint accepts a real signed delivery |
@@ -72,9 +72,19 @@ When it fails, the remediation matches the **actual** status:
 |---|---|
 | 401 / 403 | Rejected before verifying. Auth, CSRF or WAF middleware is blocking our POST — we send an `alyte-signature` header, not your app's session or CSRF token |
 | 404 | No route there. Check the path and that it accepts POST |
-| 5xx | Your handler errored. We retry with backoff, so transient failures recover |
+| 5xx | Your handler errored — check its logs. Real deliveries retry with backoff, but this check is one-shot and reports a failure: fix it before a real purchase depends on it |
 | 400 | Usually signature verification. Verify over the **raw** request bytes — a JSON body parser breaks a valid signature |
 | unreachable | Check DNS, public HTTPS, and that you respond within 10 seconds |
+
+### Pre-launch shops are not broken shops
+
+The day before your first drop, nothing is on sale — and that is exactly when
+people run this for the first time. `catalog_sellable` **warns** in that case
+rather than failing, and says "this is normal before a drop", so `ok` stays
+`true`. An agent will queue a watch and buy when sales open.
+
+It only *fails* if the shop has no tiers at all, which really does mean there is
+nothing to sell.
 
 ### `stock_present` is a warning worth reading
 
