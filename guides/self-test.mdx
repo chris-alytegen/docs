@@ -1,0 +1,133 @@
+---
+title: "Test your integration"
+description: "Prove your wiring works with one API call — no browser, no test purchase"
+---
+
+One call tells you whether an agent purchase would reach you, and what to fix if
+it wouldn't.
+
+```bash
+curl -X POST $ALYTE_BASE_URL/v1/integration/merchants/$MERCHANT_ID/selftest \
+  -H "authorization: Bearer $ALYTE_API_TOKEN"
+```
+
+Or press **Test your integration** on the Website integration page of your
+console. Both run exactly the same checks.
+
+## What you get back
+
+```json
+{
+  "ok": false,
+  "checks": [
+    { "id": "psp_linked", "title": "Payment provider connected",
+      "status": "pass", "detail": "1 provider(s) linked and the credential resolves: stripe." },
+    { "id": "webhook_delivers", "title": "Webhook accepted a signed delivery",
+      "status": "fail",
+      "detail": "https://yourshop.example/hooks/alyte did not (status=pending, HTTP 403)",
+      "remediation": "Your endpoint rejected the request before verifying it (401/403)…" }
+  ],
+  "scope": "Configuration and delivery only. No purchase is attempted…"
+}
+```
+
+`ok` is `false` if **any** check fails. A `warn` never fails the run.
+
+## The checks
+
+| Check | What it proves |
+|---|---|
+| `shop_exists` | The shop id is yours |
+| `psp_linked` | A payment provider is linked **and its stored credential can actually be read** |
+| `catalog_sellable` | Something is buyable right now — or, if nothing has opened yet, that you simply have not launched (a warn, not a failure) |
+| `stock_present` | *(warn)* No tier is on sale while we see zero stock |
+| `webhook_registered` | You have at least one active endpoint |
+| `webhook_delivers` | **Every** active endpoint accepts a real signed delivery |
+
+### `psp_linked` checks more than "is it linked"
+
+A provider link can exist while its stored credential is unreadable — rotated,
+revoked, or written under an identity we can't read. That stays invisible until
+your first real charge fails. This check resolves the credential, so you find out
+now. It never reads the secret's value.
+
+### `webhook_delivers` sends a real delivery
+
+Not a simulation. It signs a `webhook.test` event and puts it through the normal
+pipeline, and your endpoint must return 2xx.
+
+This is the check that replaces clicking through the buyer page in a frame: it
+exercises your signature verification and raw-body handling headlessly.
+
+<Warning>
+It delivers to **every active endpoint**, not just one — so an endpoint that
+silently rejects deliveries can't hide behind a healthy one. Each run therefore
+sends a `webhook.test` to all of them, production included. Don't wire this into
+something that runs frequently.
+</Warning>
+
+When it fails, the remediation matches the **actual** status:
+
+| Status | What it usually means |
+|---|---|
+| 401 / 403 | Rejected before verifying. Auth, CSRF or WAF middleware is blocking our POST — we send an `alyte-signature` header, not your app's session or CSRF token |
+| 404 | No route there. Check the path and that it accepts POST |
+| 5xx | Your handler errored — check its logs. Real deliveries retry with backoff, but this check is one-shot and reports a failure: fix it before a real purchase depends on it |
+| 400 | Usually signature verification. Verify over the **raw** request bytes — a JSON body parser breaks a valid signature |
+| unreachable | Check DNS, public HTTPS, and that you respond within 10 seconds |
+
+### Pre-launch shops are not broken shops
+
+The day before your first drop, nothing is on sale — and that is exactly when
+people run this for the first time. `catalog_sellable` **warns** in that case
+rather than failing, and says "this is normal before a drop", so `ok` stays
+`true`. An agent will queue a watch and buy when sales open.
+
+It only *fails* if the shop has no tiers at all, which really does mean there is
+nothing to sell.
+
+### `stock_present` is a warning worth reading
+
+A queued agent watch only fires when we see `availableCount` ≥ the quantity it
+wants. If your stock update never reached us, we still see `0`, and the watch
+silently never fires at the drop.
+
+This warns when a tier is **on sale and we see zero**. It stays quiet for tiers
+whose sale hasn't opened yet — those are legitimately zero.
+
+## It never buys anything
+
+That's a guarantee, not a limitation:
+
+- our event log is append-only and is the **billing source of truth**, so a test
+  purchase would bill you for a test, permanently;
+- it would move your own sales totals, success rate and purchase-attempt counts —
+  the numbers you're checking;
+- a hold decrements real stock, so a test could make a real ticket unsellable.
+
+A run writes no event, no purchase attempt, no payment intent, and no hold.
+
+**So a green run does not prove a charge will authorize.** It proves the wiring a
+charge depends on is in place. The `scope` field in the response says so.
+
+## What it does NOT check
+
+Worth knowing so a green run isn't read as broader than it is. Each of these
+comes from a real integration that hit it:
+
+- **That your `tierId` mapping is current.** We can't see your side. If your
+  mapping table is stale, a purchase can fulfil the wrong tier — resolve
+  fulfilment on `tierId` and `quantity` from the payment row, never by matching
+  the amount to a price.
+- **That `buyerRef` resolves to a real buyer on your side.** If that mapping is
+  missing, tickets can silently land on a fallback account.
+- **That your embed origin is registered** for the framed modal. Without it the
+  authorize page redirects instead of framing.
+
+## When to run it
+
+- After first setup, before you expect an agent purchase.
+- After rotating a webhook secret or a provider key.
+- After changing your webhook URL or its middleware.
+- When a buyer says an agent didn't buy — together with
+  [the watch lookup](/guides/first-integration#step-4-diagnose-it-yourself).

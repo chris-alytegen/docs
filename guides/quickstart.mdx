@@ -46,6 +46,21 @@ const { tier } = await alyte.createTier({
 });
 ```
 
+<Warning>
+**Scheduling a drop is a separate call.** Tier *restrictions* — `onSaleStart`,
+`onSaleEnd`, `maxQtyPerPurchase`, allowed geos and schemes — are set by updating
+the tier, not when creating it. Passing them to create is currently ignored
+without an error, so the tier goes on sale **immediately**:
+
+```ts
+// Create first, then set the window.
+await alyte.updateTier(tier.id, { onSaleStart: '2026-10-01T09:00:00Z' });
+```
+
+Run [the self-test](/guides/self-test) afterwards — `catalog_sellable` tells you
+whether the tier is buyable now or correctly waiting for its drop.
+</Warning>
+
 ## 4 · Send a buyer to authorize their agent
 
 If your users are already signed in with **your** auth, attest them — no email round-trip:
