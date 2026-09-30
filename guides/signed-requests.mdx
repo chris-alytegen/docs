@@ -1,0 +1,140 @@
+---
+title: "Signed requests (bring your own agent)"
+description: "How an external agent authenticates to Alyte with an RFC 9421 signature instead of a bearer token — what to sign, how a key gets registered, and how to diagnose a refusal."
+---
+
+An agent you run yourself has no Alyte token. It authenticates by **signing each
+request** with its own key, RFC 9421 style — the same mechanism Visa's Trusted
+Agent Protocol uses. Alyte looks the key up in the merchant's agent registry,
+checks the signature, freshness, replay and domain binding, and admits the
+request as that agent. Nothing in the request is trusted until the signature
+verifies.
+
+This page is the contract. If you follow it exactly, the
+[conformance tool](#prove-it-with-the-conformance-tool) will show a `200`
+against sandbox — and if it does not, the response tells you which check failed.
+
+## Before you sign: three things must be true
+
+| # | Requirement | Who does it |
+|---|---|---|
+| 1 | Your **public key is enrolled** in the merchant's agent registry under a `keyid` you choose | The merchant (console → **Agent registry** → *Enrol key*), from the public key you send them |
+| 2 | A **buyer has brought your agent** and granted it a mandate for that shop | The buyer, in the merchant's authorize flow, by entering your `keyid` |
+| 3 | You sign with the merchant's **verified domain** as `domain` and as the request's Host | You |
+
+Without 1 the signature cannot be verified (unknown key). Without 2 you are
+admitted but hold no spending authority, so anything on the money path is
+refused. Without 3 the signature is bound to the wrong domain and is refused.
+
+<Warning>
+Key enrolment today goes through the merchant's **Visa agent registry**, so the
+merchant must have connected one in their console. If your merchant has not,
+ask your Alyte contact — a registration path that does not require Visa is on
+the roadmap.
+</Warning>
+
+## What to sign
+
+Send two headers, `Signature-Input` and `Signature`, plus `Content-Digest` when
+there is a body.
+
+```
+Signature-Input: sig1=("@method" "@authority" "@path" "content-digest");keyid="agent_acme_01";alg="ed25519";created=1790722265;nonce="7bim-0X-QvB_gnrM";domain="shop.example.com";operation="payment"
+Signature:       sig1=:fU5p7rwixy1obcQkxqb9msCZS10bL1WTjwsNHfvepHaN3ma/cLF6cgc2yT6oweQ07cYn8Q86b+EdKJi0WXKRDQ==:
+Content-Digest:  sha-256=:LhqmCKEUbqmr9qApjZ8loEl71xlndWRIKg0qiw6c4dU=:
+```
+
+**Covered components**, in this order:
+
+| Component | Value | Note |
+|---|---|---|
+| `@method` | `POST` | Upper-case |
+| `@authority` | `app.alytegen.com` | The Host **Alyte sees**. A proxy that rewrites Host breaks the signature. |
+| `@path` | `/acp/checkout_sessions?x=1` | Path **and** query |
+| `content-digest` | `sha-256=:<base64>:` | Only when there is a body. Omit the component when there is none. |
+
+**Parameters:**
+
+| Param | Value |
+|---|---|
+| `keyid` | The id your key was enrolled under |
+| `alg` | `ed25519`, `ecdsa-p256-sha256` or `rsa-pss-sha256` |
+| `created` | Unix seconds. Must be within **±300 s** of Alyte's clock. |
+| `expires` | Optional. Unix seconds; refused after it. |
+| `nonce` | Unique per request. A reused nonce is refused as a replay — on **every** Alyte instance, not just the one that saw it first. |
+| `domain` | The merchant's verified domain. Must equal what the merchant verified with Alyte. |
+| `operation` | `payment` |
+
+The **signature base** is built per RFC 9421 §2.5: one `"<component>": <value>`
+line per covered component, then `"@signature-params": <everything after
+sig1=>`, joined with `\n`. Sign that string:
+
+- `ed25519` — pure EdDSA over the bytes, no prehash. Signature is the raw 64 bytes.
+- `ecdsa-p256-sha256` — SHA-256, signature in **raw `r||s`** form (64 bytes), not DER.
+- `rsa-pss-sha256` — SHA-256, PSS padding, salt length = 32.
+
+Base64 the signature bytes into `Signature` as `sig1=:<base64>:`.
+
+<Note>
+`Content-Digest` is covered by the signature, so a request whose digest header
+is altered or missing is refused. Alyte does not yet compare the digest with the
+received body; that check is planned and sending the digest now means no client
+change when it lands.
+</Note>
+
+## Prove it with the conformance tool
+
+The tool signs exactly the way Alyte verifies — it builds the signature base
+with the server's own code — so it is the reference implementation. It ships in
+the Alyte repository as `scripts/tap-sign-request.mjs`.
+
+**1 · Make a key.** The private half stays with you; the public half is what
+the merchant enrols.
+
+```bash
+node --import tsx scripts/tap-sign-request.mjs keygen --alg ed25519 --out ./agent-key
+# → ./agent-key.pem      (private, mode 600 — never share)
+# → ./agent-key.pub.pem  (public — send this to the merchant with your chosen keyid)
+```
+
+**2 · Sign and send a request.**
+
+```bash
+node --import tsx scripts/tap-sign-request.mjs sign \
+  --key ./agent-key.pem --keyid agent_acme_01 \
+  --domain shop.example.com --operation payment \
+  --method POST --url https://app.alytegen.com/acp/checkout_sessions \
+  --body ./body.json --send
+```
+
+Without `--send` it prints the three headers for you to attach in your own
+client. With `--send` it performs the request and prints the status and body.
+Exit `0` means admitted and answered 2xx; `2` means Alyte refused, and the
+output says why.
+
+## Diagnosing a refusal
+
+Every refusal is a `401` with the standard error envelope. Branch on `code`;
+the `message` names the failed check.
+
+| `code` / message | Cause | Fix |
+|---|---|---|
+| `unauthorized` · *No verified tenant for domain …* | `domain` is not a domain any merchant has verified with Alyte | Use the merchant's verified domain exactly |
+| `tap_verification_failed` · *failed verification* | Unknown or revoked `keyid`, wrong key, unsupported `alg`, or a covered component differs from what Alyte received (Host rewritten by a proxy is the usual one) | Confirm enrolment; sign the Host Alyte sees; check method/path/query match byte for byte |
+| `tap_verification_failed` · *stale* / *not yet valid* | `created` is more than 300 s from Alyte's clock | Fix your clock; sign immediately before sending |
+| `tap_verification_failed` · *has expired* | Your own `expires` passed | Set it later, or omit it |
+| `tap_verification_failed` · *missing its nonce* | No `nonce` param | Add a unique nonce per request |
+| `tap_verification_failed` · *nonce already used (replay)* | The same `(keyid, nonce)` was seen before | Never reuse a nonce — including on retries: re-sign the retry |
+| `tap_verification_failed` · *bound to … not …* | `domain` differs from the domain Alyte resolved for this request | Sign with the merchant's verified domain |
+
+Admitted but refused on a purchase? That is the mandate, not the signature — see
+[the agent buy path](/guides/agent-buy) and [Errors](/guides/errors). A buyer
+has to bring your agent and grant it a cap before it can spend.
+
+## What the signature does and does not prove
+
+A valid signature proves **who** sent the request: a registered agent operator,
+bound to this merchant, right now, once. It carries **no spending authority**.
+Every cap, scope, expiry and inventory limit is enforced server-side from the
+buyer's mandate, on every call, regardless of what the agent asserts. An agent
+that is compromised can, at worst, be refused.
