@@ -10,9 +10,9 @@ checks the signature, freshness, replay and domain binding, and admits the
 request as that agent. Nothing in the request is trusted until the signature
 verifies.
 
-This page is the contract. If you follow it exactly, the
-[conformance tool](#prove-it-with-the-conformance-tool) will show a `200`
-against sandbox — and if it does not, the response tells you which check failed.
+Use the [conformance tool](#prove-it-with-the-conformance-tool) to sign and send
+a sandbox request. A valid signature admits your identity; the endpoint still
+validates the payload and any required purchase authority.
 
 ## Before you sign: three things must be true
 
@@ -20,7 +20,7 @@ against sandbox — and if it does not, the response tells you which check faile
 |---|---|---|
 | 1 | Your **public key is enrolled** in the merchant's agent registry under a `keyid` you choose | The merchant (console → **Agent registry** → *Enrol key*), from the public key you send them |
 | 2 | A **buyer has brought your agent** and granted it a mandate for that shop | The buyer, in the merchant's authorize flow, by entering your `keyid` |
-| 3 | You sign with the merchant's **verified domain** as `domain` and as the request's Host | You |
+| 3 | You use the merchant's **verified domain** as `domain`, and sign the actual request Host as `@authority` | You |
 
 Without 1 the signature cannot be verified (unknown key). Without 2 you are
 admitted but hold no spending authority, so anything on the money path is
@@ -76,10 +76,16 @@ sig1=>`, joined with `\n`. Sign that string:
 Base64 the signature bytes into `Signature` as `sig1=:<base64>:`.
 
 <Note>
-`Content-Digest` is covered by the signature, so a request whose digest header
-is altered or missing is refused. Alyte does not yet compare the digest with the
-received body; that check is planned and sending the digest now means no client
-change when it lands.
+Alyte compares the signed `Content-Digest` with SHA-256 of the exact received
+body bytes. For a request with a body, supply one canonical
+`sha-256=:<base64>:` value and include `content-digest` in the covered components.
+A missing, unsigned, malformed or mismatched digest fails verification. Multiple
+digest values and other algorithms are not accepted by this profile.
+
+Hash and send the same bytes. Reformatting JSON, changing whitespace or changing
+UTF-8 encoding after signing invalidates the request, even when its parsed JSON
+would be equivalent. The conformance tool hashes and sends the same body file.
+Body-size limits still apply.
 </Note>
 
 ## Prove it with the conformance tool
@@ -114,13 +120,16 @@ output says why.
 
 ## Diagnosing a refusal
 
-Every refusal is a `401` with the standard error envelope. Branch on `code`;
-the `message` names the failed check.
+Signature authentication refusals use `401` with the standard error envelope.
+Branch on `code`; the `message` identifies some checks, while cryptographic and
+body-digest failures share the generic verification failure. Payload validation,
+body-size limits and purchase checks can return other statuses.
 
 | `code` / message | Cause | Fix |
 |---|---|---|
 | `unauthorized` · *No verified tenant for domain …* | `domain` is not a domain any merchant has verified with Alyte | Use the merchant's verified domain exactly |
 | `tap_verification_failed` · *failed verification* | Unknown or revoked `keyid`, wrong key, unsupported `alg`, or a covered component differs from what Alyte received (Host rewritten by a proxy is the usual one) | Confirm enrolment; sign the Host Alyte sees; check method/path/query match byte for byte |
+| `tap_verification_failed` · *failed verification* on a request with a body | Missing, unsigned, malformed or mismatched `Content-Digest` | Hash the exact bytes sent using SHA-256; send one canonical digest and cover it in `Signature-Input`; do not reserialize after signing |
 | `tap_verification_failed` · *stale* / *not yet valid* | `created` is more than 300 s from Alyte's clock | Fix your clock; sign immediately before sending |
 | `tap_verification_failed` · *has expired* | Your own `expires` passed | Set it later, or omit it |
 | `tap_verification_failed` · *missing its nonce* | No `nonce` param | Add a unique nonce per request |
@@ -136,5 +145,6 @@ has to bring your agent and grant it a cap before it can spend.
 A valid signature proves **who** sent the request: a registered agent operator,
 bound to this merchant, right now, once. It carries **no spending authority**.
 Every cap, scope, expiry and inventory limit is enforced server-side from the
-buyer's mandate, on every call, regardless of what the agent asserts. An agent
-that is compromised can, at worst, be refused.
+buyer's mandate, on every call, regardless of what the agent asserts. A
+compromised agent can still exercise its existing authority within those limits;
+revoke its key and buyer grants when that authority should end.
