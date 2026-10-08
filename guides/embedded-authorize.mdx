@@ -42,17 +42,46 @@ The embedded page posts to your window — **only** to your registered origin:
 window.addEventListener('message', (e) => {
   if (e.origin !== ALYTE_ORIGIN) return;                 // always origin-check
   if (e.data?.type !== 'alyte:authorize') return;
-  if (e.data.event === 'completed') {
-    // { merchantId, agentId, mandateId, capMinor, currency }
-    closeModal(); refreshAgentsUI();
+  switch (e.data.event) {
+    case 'ready':      showFrame(); break;                 // page loaded
+    case 'authorized': break;                              // agent ready, purchase still in progress — keep the modal open
+    case 'completed':  closeModal(); refreshAgentsUI(); break;
   }
-  // event === 'ready' fires when the page loads — useful for a spinner.
 });
 ```
 
-There is no `cancelled` event — your modal's close button owns dismissal.
+### Message reference
+
+Every message is `{ type: 'alyte:authorize', merchantId, event, ...fields }`.
+
+| `event` | When | Extra fields |
+|---|---|---|
+| `ready` | The page has loaded inside your frame | — |
+| `authorized` | The buyer granted a mandate **and** a purchase intent (`?tier=`) is still being carried out. The flow is not finished — do not close the modal | `agentId`, `mandateId`, `capMinor`, `currency` |
+| `completed`, `outcome: 'authorized'` | The buyer granted a mandate and there was no purchase intent — the grant was the whole journey | `agentId`, `mandateId`, `capMinor`, `currency` |
+| `completed`, `outcome: 'purchased'` | The agent bought the intended tier now | `tierId`, `agentId`, `chargeMinor` |
+| `completed`, `outcome: 'queued'` | The tier was not buyable yet, so a watch was queued under the mandate | `tierId`, `agentId` |
+
+`completed` is terminal: close the modal on it. Branch on `outcome` to decide what
+to tell the buyer — a queued watch resolves later via the
+[`watch.*` webhooks](/guides/webhooks).
+
+There is no `cancelled` event — your modal's close button owns dismissal — and
+no `error` event: failures are shown to the buyer inside the page, and the modal
+stays open for them to retry or close.
+
+<Warning>
+**Omit `return` when embedding.** The page's "Back to the shop" link is a plain
+navigation; inside a frame it navigates the *frame*, not your page. Drive
+dismissal from the `completed` message instead and leave the `return` intent
+parameter off the redeem link.
+</Warning>
 
 ## Notes
+
+- **Narrow frames**: below tablet width the page collapses to the checkout
+  column and hides the "Your agents" tab. That is intended for a buyer mid-purchase;
+  if you want the management view in your embed, give the frame at least 720px.
 
 - **Card capture inside the modal**: the page's Stripe Elements iframe runs at
   one extra frame depth. Validate it once in a staging embed before enabling in

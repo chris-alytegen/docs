@@ -12,7 +12,8 @@ and diagnose a delivery problem without asking us to look in our database.
 
 <Note>
 Everything here is implemented in one runnable file:
-[`sdk/examples/reference-merchant/server.ts`](https://github.com/Alytegen/alyte/blob/main/sdk/examples/reference-merchant/server.ts).
+[`examples/reference-merchant/server.ts`](https://github.com/Alytegen/alyte-sdk/blob/main/examples/reference-merchant/server.ts)
+in the public SDK repository.
 Read that alongside this page — it is the same four steps, in the same order.
 </Note>
 
@@ -68,7 +69,7 @@ curl -X POST $ALYTE_BASE_URL/v1/integration/webhooks/{id}/test \
 The SDK verifies and dispatches:
 
 ```ts
-import { createWebhookHandler } from '@alyte/sdk';
+import { createWebhookHandler } from '@alytegen/sdk';
 
 const onAlyteWebhook = createWebhookHandler({ secret: process.env.ALYTE_WEBHOOK_SECRET! }, {
   onSettled:     async (payment, event) => { /* step 3 */ },
