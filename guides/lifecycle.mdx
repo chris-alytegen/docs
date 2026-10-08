@@ -34,10 +34,21 @@ stateDiagram-v2
 `status` is exactly one of: `queued` · `firing` · `fired` · `failed` ·
 `cancelled` · `expired`.
 
-**What fires a watch**: the tier becoming buyable. That happens when you PATCH
-`onSaleStart`/`onSaleEnd`/`availableCount`/`sellable` (the change fires it within
-about a second), or when a scheduled sweep notices a clock-crossing drop (within
-five minutes). You do not need to tell us to fire it.
+**What fires a watch**: the tier becoming buyable.
+
+- **You PATCH the tier** (`onSaleStart`/`onSaleEnd`/`availableCount`/`sellable`)
+  so that it is buyable now — the PATCH schedules evaluation of that tier's
+  queued watches without waiting for the periodic sweep.
+- **A future-dated `onSaleStart` passes** with no PATCH at that moment — the
+  scheduled sweep detects it on its next run (every five minutes in production).
+  To get the immediate path for a timed drop, PATCH at the moment of opening.
+
+Queued watches for a tier are processed one after another, each running the
+full money path — quote, hold, a charge at your PSP. Purchase-start and
+webhook-delivery times therefore depend on queue position, PSP responses and
+delivery attempts; plan for seconds, not milliseconds, and do not infer failure
+from a short wait. You do not need to tell us to fire a watch, and there is no
+separate call to do so.
 
 **`failed` is terminal.** A refusal produced by the buyer's own mandate — spend
 cap, quantity guardrail, scope — will never succeed on retry, so we do not retry

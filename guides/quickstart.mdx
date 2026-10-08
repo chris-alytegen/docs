@@ -11,15 +11,17 @@ The token is shown once — keep it server-side; never ship it to a browser.
 ## 2 · Install the SDK
 
 ```bash
-npm install @alyte/sdk   # zero dependencies, Node ≥ 18
+npm install @alytegen/sdk   # zero dependencies, Node ≥ 18
 ```
 
+Source, the quickstart and runnable examples are public at
+[github.com/Alytegen/alyte-sdk](https://github.com/Alytegen/alyte-sdk).
 (Or call the REST API directly — the SDK is a thin typed client over it.)
 
 ## 3 · Onboard
 
 ```ts
-import { AlyteMerchant } from '@alyte/sdk';
+import { AlyteMerchant } from '@alytegen/sdk';
 
 const alyte = new AlyteMerchant({ baseUrl: ALYTE_URL, token: process.env.ALYTE_API_TOKEN });
 
