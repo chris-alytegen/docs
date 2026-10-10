@@ -25,7 +25,8 @@
               "index",
               "guides/getting-access",
               "guides/quickstart",
-              "guides/first-integration"
+              "guides/first-integration",
+              "guides/changelog"
             ]
           },
           {
@@ -61,7 +62,7 @@
         "groups": [
           {
             "group": "API",
-            "openapi": "https://alyte-sandbox-f365cfb3ma-ey.a.run.app/openapi.public.json"
+            "openapi": "https://app.alytegen.com/openapi.public.json"
           }
         ]
       }

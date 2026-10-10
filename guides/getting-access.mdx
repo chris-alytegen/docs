@@ -18,7 +18,7 @@ lives inside).
 
 | Environment | Base URL | What it's for |
 |---|---|---|
-| **Sandbox** | `https://alyte-sandbox-f365cfb3ma-ey.a.run.app` | Integration builds and tests. Stripe **test** keys, no real money. Self-serve API keys. |
+| **Sandbox** | `https://app.alytegen.com` (also `https://alyte-sandbox-f365cfb3ma-ey.a.run.app`) | Integration builds and tests. Stripe **test** keys, no real money. Self-serve API keys. Both hostnames serve the same deployment; signed agent requests must sign the hostname they call. |
 | Production | *(not yet public)* | Live keys are gated: your tenant must be approved for go-live by Alyte before the console will mint one. |
 
 Everything in these docs works against sandbox. The API surface is identical.

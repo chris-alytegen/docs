@@ -59,6 +59,10 @@ const outcome = await agent.confirm(hold.id,
   the same key can never double-charge — even across crashes.
 - `outcome.status` is `settled`, or `sca_required` (the buyer must approve a
   challenge — resume with `agent.resolveSca(continueToken, 'approved')`).
+- HTTP `202` with a pending status means the shop's payment provider has
+  accepted the payment and will confirm it shortly. **Do not confirm again**:
+  the hold stays reserved, and the purchase completes (or is released) when the
+  provider's confirmation arrives. Watch for it rather than retrying.
 - A refusal throws with a stable error `code` — see
   [Errors](/guides/errors). A mandate refusal (spend cap, scope) means the
   buyer's limits said no: surface it, don't retry.
