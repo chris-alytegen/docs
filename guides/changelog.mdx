@@ -1,0 +1,60 @@
+---
+title: "What's new"
+description: "Changes to the Alyte API and buyer pages that integrators should know about, newest first."
+---
+
+Everything here is live on sandbox (`https://app.alytegen.com`).
+
+## October 2026
+
+### Buyers verify their email before granting an agent spending power
+
+Sessions you mint with `buyerSessions.mint` are now **bounded**. They can act
+inside authority the buyer already granted, but saving a card, creating an
+agent, granting a mandate or changing an agent's card first needs a 6-digit
+code emailed to the buyer. The authorize page asks for it; your integration
+does not change. Test with inboxes you can read.
+[Details →](/guides/buyer-sessions)
+
+### Tier restrictions are accepted on create
+
+`POST /v1/integration/tiers` now saves `onSaleStart`, `onSaleEnd`,
+`maxQtyPerPurchase`, `sellable`, `allowedGeos` and `allowedSchemes` in the same
+write as the tier. Unknown fields are refused with `400` instead of being
+dropped. [Details →](/guides/quickstart)
+
+### The buyer pages speak six languages
+
+The authorize page and buyer screens are available in English, German, Spanish,
+French, Hungarian and Brazilian Portuguese. Pass `lang` when you mint a session
+to choose one; otherwise the buyer's own choice or browser language applies.
+The non-English text is a first draft pending native review: report anything
+that reads wrong.
+
+### Rate limits tell you when to retry
+
+A `429` now carries `code: "rate_limited"`, a `retryAfter` value in seconds and a
+matching `Retry-After` header. [Errors →](/guides/errors)
+
+### Card setup accepts cards only
+
+The card-capture step now offers card payment methods only. Saved cards are
+also tied to the shop and payment connection they were saved for; using one
+elsewhere is refused with `409 instrument_provider_mismatch`.
+
+### Payments can be pending
+
+Confirm can answer `202` when the shop's payment provider confirms
+asynchronously. Do not submit the payment again; the purchase completes or is
+released when the provider's confirmation arrives.
+[Agent buy path →](/guides/agent-buy)
+
+### Adyen (coming to sandbox)
+
+Merchant setup can now hold an Adyen sandbox connection, and Alyte can save
+Adyen cards and complete Adyen purchases from verified provider evidence. It is
+**not switched on in sandbox yet**: Stripe remains the provider to test with.
+
+### Public SDK
+
+`@alytegen/sdk` is on npm (MIT): `npm install @alytegen/sdk`.

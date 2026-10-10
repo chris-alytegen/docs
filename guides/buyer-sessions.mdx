@@ -20,9 +20,45 @@ const s = await alyte.buyerSessions.mint({
 // → { buyerId: 'byr_…', redeemPath: '/buyer/redeem?token=…', expiresAt }
 ```
 
+Optional fields open the page as a checkout for one ticket type: `tierId`,
+`quantity` (1–10), `returnUrl` (https, under your registered embed origin) and
+`lang` (a language tag such as `de` or `pt-BR`; the page also honours the
+buyer's own choice and browser language).
+
 4. You redirect the user to `ALYTE_URL + s.redeemPath`.
 5. They arrive on the shop's authorize page already signed in, and grant their
    agent a mandate: spending cap, validity window, optional event scope.
+
+## Your attestation is trusted for buying, not for granting
+
+A session you mint is **merchant-attested**: Alyte believes your server that
+this is `user.email`, but nothing has yet shown that the person in the browser
+controls that inbox. So the session is **bounded**:
+
+- It **can** act inside authority the buyer already granted: view their agents,
+  mandates and purchases, and let an agent buy within an existing mandate.
+- It **cannot create or widen** spending authority on your word alone. Saving a
+  card, creating an agent, granting a mandate, or changing an agent's card first
+  requires the buyer to prove they own the inbox.
+
+On the authorize page this is one extra step, handled entirely by Alyte: when the
+buyer first tries to grant, the page shows **Verify your email**, sends a
+6-digit code to the attested address, and continues once they enter it. The
+verified credential lasts 30 minutes; a code allows five attempts. Your server
+never sees the code or the resulting credential, and there is nothing to change
+in your integration.
+
+What it means for you:
+
+- **Test with inboxes you can read.** In sandbox the code is a real email.
+  Automated browser tests that drive the authorize page must read that inbox, or
+  stop before the grant step.
+- **A direct call** to one of those buyer endpoints with a bounded session is
+  refused with `403 step_up_required`. That is the page's cue to ask for the
+  code, not an error to retry.
+
+This applies to every merchant, so a mistaken or compromised attestation can
+never hand an agent new spending power.
 
 ## Properties worth knowing
 

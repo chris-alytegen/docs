@@ -48,20 +48,24 @@ const { tier } = await alyte.createTier({
 });
 ```
 
-<Warning>
-**Scheduling a drop is a separate call.** Tier *restrictions* — `onSaleStart`,
-`onSaleEnd`, `maxQtyPerPurchase`, allowed geos and schemes — are set by updating
-the tier, not when creating it. Passing them to create is currently ignored
-without an error, so the tier goes on sale **immediately**:
+<Note>
+**Scheduling a drop at creation.** `POST /v1/integration/tiers` accepts the tier
+restrictions — `onSaleStart`, `onSaleEnd`, `maxQtyPerPurchase`, `sellable`,
+`allowedGeos`, `allowedSchemes` — and saves them in the same write as the tier,
+so a tier created with a future `onSaleStart` is never on sale early.
+**Unknown fields are refused** with `400` and the offending names in
+`details.fields`, so a typo can't silently drop a restriction.
+
+`@alytegen/sdk` 0.3.0's `createTier` type does not list these fields yet (the
+next release does). On 0.3.0, set them with `updateTier` straight after creating:
 
 ```ts
-// Create first, then set the window.
 await alyte.updateTier(tier.id, { onSaleStart: '2026-10-01T09:00:00Z' });
 ```
 
 Run [the self-test](/guides/self-test) afterwards — `catalog_sellable` tells you
 whether the tier is buyable now or correctly waiting for its drop.
-</Warning>
+</Note>
 
 ## 4 · Send a buyer to authorize their agent
 
