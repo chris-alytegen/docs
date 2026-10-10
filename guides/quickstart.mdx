@@ -63,8 +63,10 @@ next release does). On 0.3.0, set them with `updateTier` straight after creating
 await alyte.updateTier(tier.id, { onSaleStart: '2026-10-01T09:00:00Z' });
 ```
 
-Run [the self-test](/guides/self-test) afterwards — `catalog_sellable` tells you
-whether the tier is buyable now or correctly waiting for its drop.
+To confirm a scheduled tier, read it back with `GET /v1/integration/catalog`:
+its `onSaleStart` is set and discovery reports it `not_yet_on_sale`. The
+[self-test](/guides/self-test)'s `catalog_sellable` check counts tiers that are
+buyable now; it does not list individual upcoming tiers.
 </Note>
 
 ## 4 · Send a buyer to authorize their agent
