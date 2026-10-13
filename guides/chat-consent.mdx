@@ -1,0 +1,240 @@
+---
+title: "Buyer purchases inside your chat"
+description: "Set up and use a buyer's agent without leaving your chat. The browser SDK holds a bounded credential; Alyte's isolated consent view handles verification."
+---
+
+Your chat assistant can let a signed-in customer set up an agent, buy a ticket
+within their permission, or queue for a drop — inside your page, with no redirect
+and no cookies. Available in `@alytegen/sdk` **0.4.0** (`@alytegen/sdk/browser`).
+
+Three credentials exist in this flow, and each stays where it belongs:
+
+| Credential | Lives | Can |
+|---|---|---|
+| Your **merchant token** | your backend only | mint buyer sessions, manage your shop |
+| The **bounded buyer bearer** | your page, in memory, 30 minutes | list the buyer's agents and watches; buy or queue **within a permission the buyer already granted**; revoke |
+| The **full verification credential** | Alyte's consent iframe, in memory, 30 minutes | create or widen permission, save a card |
+
+Your page never sees the third one, and your backend never sees the second. If the
+buyer has no permission yet, the consent view asks them to confirm a code emailed by
+Alyte — inside the iframe — then creates the agent and permission and hands your
+page the resulting IDs.
+
+<Note>
+**Prerequisite.** This flow is offered to merchants onboarded under an Alyte contract
+([Getting access](/guides/getting-access)). The contract carries one rule the API
+cannot enforce for you: your pages and your backend never handle the buyer's
+verification code — see [what your integration must never do](#what-your-integration-must-never-do).
+</Note>
+
+<Note>
+Already embedding the authorize page in a modal? That path keeps working
+([Embedded authorize](/guides/embedded-authorize)). The consent component is the
+cookie-free alternative for chats and single-page apps.
+</Note>
+
+## Set up
+
+<Steps>
+<Step title="Register your chat origin">
+
+```
+PATCH /v1/integration/merchants/{merchantId}
+{ "embedOrigin": "https://chat.example.com https://staging.chat.example.com" }
+```
+
+Up to **three** bare origins, space- or comma-separated: `https`, no path or query
+(`http` is accepted for `localhost` and `127.0.0.1` only). `null` clears them. The
+same list drives three things: which pages may frame Alyte, where Alyte posts
+messages, and which browser origins may call the buyer API with a bearer
+([Browser access and CORS](/guides/browser-api)). New registrations reach the
+preflight cache within 30 seconds.
+
+</Step>
+<Step title="Mint on your backend; hand the browser only the token">
+
+```ts
+// Your backend. Your auth decides who the user is.
+const session = await alyte.buyerSessions.mint({ merchantId, email: user.email, lang: user.lang });
+const token = new URL(session.redeemPath, ALYTE_URL).searchParams.get('token');
+return { token }; // to this user's browser only
+```
+
+The mint endpoint must never accept a browser-supplied email as identity. The
+token works **once**, for 15 minutes, for one consumer: either your page exchanges
+it (below) or the buyer navigates the redeem link — not both. Three links per
+email per 15 minutes.
+
+</Step>
+<Step title="Exchange it in the browser">
+
+```ts
+import { exchangeBuyerSession, createBuyerClient } from '@alytegen/sdk/browser';
+
+const connection = await exchangeBuyerSession({ baseUrl: ALYTE_URL, token });
+// → { bearer, buyerId, expiresAt }   keep in memory, never in storage
+const buyer = createBuyerClient({ baseUrl: ALYTE_URL, bearer: connection.bearer });
+```
+
+The call must come from a registered origin; from anywhere else it is refused
+with `403` **and the token is not consumed**, so a misconfigured origin costs you a
+fix, not a re-mint. A replayed or expired token answers `401 link_invalid`. When
+`expiresAt` passes, or any call answers `401 unauthorized`, ask your backend for a
+fresh mint and exchange again; build a new client with the new bearer.
+
+</Step>
+<Step title="Open consent when the buyer needs an agent">
+
+```ts
+import { openConsent, AlyteConsentError } from '@alytegen/sdk/browser';
+
+const controller = new AbortController(); // abort when your chat or modal closes
+try {
+  const { agentId, mandateId } = await openConsent({
+    baseUrl: ALYTE_URL, merchantId, bearer: connection.bearer,
+    container: document.querySelector<HTMLElement>('#alyte-consent')!,
+    tierId, quantity: 1,                 // optional purchase intent, shown as context
+    lang: 'de',
+    theme: { accent: '#006466', font: 'sans', radius: 8, scheme: 'light' },
+    signal: controller.signal,
+  });
+} catch (e) {
+  if (e instanceof AlyteConsentError && e.code === 'consent_cancelled') { /* buyer closed it */ }
+}
+```
+
+The SDK mounts Alyte's consent view as an iframe in `container`, hands it the
+bounded bearer through a parent-origin-checked message, and resolves when the
+buyer has chosen or created a permission. Choosing an existing usable agent
+needs no verification. Creating one does: the view sends a 6-digit code to the
+attested email and verifies it **inside the iframe**; card entry also happens
+there. On completion the iframe is removed and you receive IDs only.
+
+</Step>
+<Step title="Buy, watch and revoke with the bounded client">
+
+```ts
+const attempt = { agentId, tierId, quantity: 1, attemptId: crypto.randomUUID() };
+await attempts.save(attempt);          // durable, BEFORE sending; keyed to this buyer, shop and cart
+const purchase = await buyer.buy(attempt);
+if (purchase.status === 'pending') {
+  const receipt = await buyer.payment(purchase.intentId); // poll later while pending
+}
+```
+
+`attemptId` is a UUID you persist before dispatch and reuse, unchanged, if the
+response is lost — never a fresh one for an uncertain charge. The SDK retries
+nothing on its own. `settled` is success; `pending` is not yet decided;
+`sca_required` means the buyer must authenticate with their bank and the browser
+path for that is not available yet — do not treat it as success and do not send a
+new purchase.
+
+</Step>
+</Steps>
+
+Your backend still fulfils from the verified
+[`payment.settled` webhook](/guides/webhooks), idempotently. Anything your page
+learns from the SDK is presentation state, not fulfilment evidence.
+
+## `openConsent` options
+
+| Option | Type | Notes |
+|---|---|---|
+| `baseUrl` | `string` | Alyte's origin, `https` (plain `http` only for localhost). |
+| `merchantId` | `string` | The shop the session was minted for. |
+| `bearer` | `string` | The bounded bearer from `exchangeBuyerSession`. |
+| `container` | `HTMLElement` | Where the iframe mounts. The SDK sets width 100 % and manages height (240–1200 px) from the view's `resize` messages. |
+| `tierId`, `quantity` | `string`, `1–10` | Optional purchase intent shown to the buyer as context. The permission and the tier's own limits still govern at buy time. `quantity` requires `tierId`. |
+| `lang` | `string` | Language tag such as `de` or `pt-BR`. The view also honours the buyer's own choice. |
+| `returnUrl` | `string` | Must be on your origin. Shown as the view's Back link; the SDK never navigates your page. |
+| `onNavigate(url)` | function | Called with that Back URL when the buyer clicks it. You decide what happens. |
+| `signal` | `AbortSignal` | Abort to close the view; the promise rejects with `consent_cancelled`. |
+| `readyTimeoutMs` | `number` | How long to wait for the view's first handshake. Default 15 000. Never limits how long the buyer takes. |
+
+Resolves with `{ agentId, mandateId }`. Rejects with `AlyteConsentError`, whose
+`code` is:
+
+| `code` | Meaning |
+|---|---|
+| `consent_cancelled` | The buyer cancelled, or you aborted the signal. |
+| `consent_unavailable` | No handshake within `readyTimeoutMs`. Almost always an origin that is not registered for this shop (the frame is blocked), or a registration younger than 30 seconds. |
+| anything else | A server code passed through, for example `unauthorized` when the bearer expired mid-flow: exchange a fresh token and open again. |
+
+### Theme
+
+The view reads as part of your shop through one small, validated object. Fields
+other than these are ignored.
+
+| Field | Accepts | Default |
+|---|---|---|
+| `accent`, `background`, `surface`, `text` | opaque hex colour (`#RGB` or `#RRGGBB`) | from `scheme` |
+| `font` | `system`, `sans`, `serif` | `system` |
+| `radius` | integer 0–16 (px) | 8 |
+| `scheme` | `light`, `dark` | `light` |
+
+`scheme` picks a complete palette first; valid overrides apply on top. Invalid
+values are ignored. If the resulting colours fail contrast checks (4.5:1 for text,
+3:1 for accents against both backgrounds), **all four colours** fall back to the
+scheme defaults — they are not adjusted. The permission terms, validation errors
+and disabled controls keep fixed readable colours, and payment-provider card inputs
+keep the provider's styling. The theme applies to this mounted view only; it does
+not change shop settings.
+
+## Bounded client reference
+
+| Method | Calls | Returns |
+|---|---|---|
+| `me()` | `GET /v1/buyer/me` | the buyer's identity, shop and `tier` |
+| `catalog()` | `GET /v1/buyer/catalog` | the shop's events and tiers with live state |
+| `agents()` | `GET /v1/buyer/agents` | agents with their permissions |
+| `instruments()`, `instrumentCaps()` | `GET /v1/buyer/instruments`, `…/instruments/caps` | saved cards and per-card caps |
+| `buy({ agentId, tierId, quantity, attemptId })` | `POST /v1/buyer/agents/{id}/buy` | `settled`, `pending` (with `intentId`) or `sca_required` |
+| `payment(intentId)` | `GET /v1/buyer/payments/{id}` | the receipt; poll while `pending` |
+| `watches()`, `watch({ agentId, tierId, quantity, expiresInDays? })`, `cancelWatch(id)` | `/v1/buyer/watches` | watches that fire under the permission when a tier opens |
+| `revokeMandate(id)` | `DELETE /v1/buyer/mandates/{id}` | immediate, server-enforced |
+
+Every buy and watch is checked server-side against the buyer's current permission,
+card evidence and live availability. Non-2xx responses throw `AlyteApiError` with
+`status`, `code` and `details`; a purchase refusal (`402`) carries its outcome in
+`details`. See [Errors](/guides/errors).
+
+## What your integration must never do
+
+- **Never call the verification endpoints or handle the buyer's code**, from your
+  page or from your backend. The consent view does that. A code entered anywhere in
+  your own UI is a defect in the integration, not a feature. Alyte refuses browser
+  calls to those endpoints from partner origins; that refusal is a browser
+  boundary, not a substitute for this rule.
+- **Never proxy buyer calls through your server** or keep the bearer anywhere but
+  memory. The credential belongs to the buyer's browser session.
+- **Never claim a purchase in chat before settlement.** Say "confirmed" on the
+  webhook, not on a resolved promise.
+
+## Without the SDK: the consent view's messages
+
+If you cannot use the SDK, mount the view yourself:
+
+```
+https://app.alytegen.com/shop/{merchantId}/authorize?view=consent&embed=1
+```
+
+Optional query keys mirror the SDK options: `tier`, `qty`, `lang`, `return`, and
+the theme fields `accent`, `background`, `surface`, `text`, `font`, `radius`,
+`scheme` (colours as bare `RRGGBB` or URL-encoded `%23RRGGBB`). Every message is
+`{ type: 'alyte:consent', merchantId, event, …fields }`. Always check
+`event.origin` against Alyte's origin and `event.source` against your iframe's
+window.
+
+| Direction | `event` | Fields | Notes |
+|---|---|---|---|
+| view → you | `ready` | — | The document loaded. Reply with `bootstrap`. A language change reloads the frame: expect `ready` again and bootstrap again. |
+| you → view | `bootstrap` | `bearer` | Post to Alyte's origin with the bounded bearer. Accepted once per document, only from the parent window, only from a registered origin. |
+| view → you | `granted` | `agentId`, `mandateId` | Terminal. Remove the iframe. |
+| view → you | `cancelled` | — | Terminal. The buyer closed the view. |
+| view → you | `error` | `code` | Terminal. For example `unauthorized` when the bearer expired. |
+| view → you | `resize` | `height` | Set the iframe height. |
+| view → you | `navigate` | `url` | The buyer clicked the Back link (`return`). The URL is on your origin; you decide whether to navigate. |
+
+The view's own requests go to Alyte's origin without cookies; the bearer you
+bootstrapped is the only credential it holds, and the full verification credential
+it mints stays inside.

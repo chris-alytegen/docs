@@ -61,6 +61,27 @@ What it means for you:
 This applies to every merchant, so a mistaken or compromised attestation can
 never hand an agent new spending power.
 
+## In a chat: exchange instead of redirect
+
+A page on your registered embed origin can exchange the mint's single-use token
+for a **bounded** bearer kept in memory, then open Alyte's consent view inline
+and buy within the permission — no redirect, no cookies. The rules above are
+unchanged: the bearer is bounded, and creating or widening permission happens in
+Alyte's view with the emailed code. See
+[Buyer purchases inside your chat](/guides/chat-consent).
+
+## Contracted merchants: attested consent
+
+Merchants under contract with Alyte can be enabled by Alyte staff to **attest
+their customer's consent** themselves: a mint with `merchantAttested: true`, on an
+API key holding the dedicated `mandates:attest` scope, lets the buyer create a
+permission without the emailed code — within ceilings staff set for the shop
+(amount, currency, duration). The buyer sees "Set up by *your shop*" on that agent
+and can revoke it at any time. A request outside the ceiling falls back to the
+buyer's own verification. Without the enablement the mint is refused with
+`403 merchant_consent_not_enabled`. This is not available to agent operators;
+ask us when your contract is in place.
+
 ## Properties worth knowing
 
 - **Single-use, short-lived.** The redeem link works once and expires in 15
