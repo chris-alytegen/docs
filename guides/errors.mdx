@@ -20,6 +20,10 @@ Every error response has one shape:
 | **Catalog refusals** | not on sale yet, quantity cap, geo/scheme restriction, sold out | Terminal for this request. `not_yet_on_sale` includes a `retryAfter` — schedule, don't poll. |
 | **Validation** (`400`) | float prices, malformed bodies | Fix the request. Money is integer minor units, always. |
 | **Auth** (`401`/`403`) | expired token, missing scope, revoked key | Re-authenticate or request the right scope. Revocation is server-side and immediate. |
+| **Verification required** (`403 step_up_required`) | a [merchant-attested buyer session](/guides/buyer-sessions) tried to create or widen spending authority | Not a failure. The buyer must confirm a code sent to their email; the authorize page does this itself. |
+| **Rate limited** (`429 rate_limited`) | too many requests, sign-in links or verification codes | Retryable. Wait `retryAfter` seconds (also sent as the `Retry-After` header), then retry. A `429` without `retryAfter` came from a payment provider: back off. |
+| **Card / connection mismatch** (`409 instrument_provider_mismatch`) | a saved card is used at a shop or payment connection it was not saved for | Terminal. Cards are saved per shop and per payment connection; the buyer adds a card for this shop. |
+| **Payment pending** (`202`) | the payment provider accepted the payment but confirms it asynchronously | Not a failure and not a success yet. **Do not submit the payment again.** Wait for the settlement webhook or poll the payment. |
 | **Indeterminate payment outcomes** | PSP timeout mid-charge | The charge may have succeeded. Alyte **halts rather than guesses** — it will never retry a possibly-succeeded charge into a double-charge, and neither should you. Re-check the payment's status; your `idempotencyKey` makes a safe re-confirm possible. |
 
 ## The two rules that matter
