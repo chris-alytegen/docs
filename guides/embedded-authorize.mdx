@@ -4,19 +4,30 @@ description: "Open the agent-authorization page in a modal on your own site — 
 ---
 
 By default the authorize page **refuses to be framed** (it's where users grant
-spending authority — clickjacking matters). A merchant can register **one**
-origin that may embed it; everything below hangs off that single trust anchor.
+spending authority — clickjacking matters). A merchant can register up to
+**three** origins that may embed it — production and staging, say — and
+everything below hangs off that list.
+
+<Note>
+Building a chat or single-page app? The consent component in SDK 0.4.0 keeps the
+buyer inside your page with no cookies and no redirect — see
+[Buyer purchases inside your chat](/guides/chat-consent). The modal below remains
+the right fit for a classic site.
+</Note>
 
 ## 1 · Register your embed origin
 
 ```
 PATCH /v1/integration/merchants/{merchantId}
-{ "embedOrigin": "https://yourshop.example" }
+{ "embedOrigin": "https://yourshop.example https://staging.yourshop.example" }
 ```
 
-Exactly one origin: https, no path (`null` clears it). Once set, the authorize
-page serves `frame-ancestors 'self' https://yourshop.example` and drops
-`X-Frame-Options` — your iframe renders; everyone else's stays blocked.
+Up to three bare origins, space- or comma-separated: `https`, no path or query
+(`http` only for `localhost` and `127.0.0.1`); `null` clears them. Once set, the
+authorize page serves `frame-ancestors 'self' <your origins>` and drops
+`X-Frame-Options` — your iframe renders; everyone else's stays blocked. The same
+list is where the page posts its messages, and which browser origins may call the
+buyer API with a bearer ([Browser access and CORS](/guides/browser-api)).
 
 ## 2 · Frame the redeem URL, not the authorize URL
 

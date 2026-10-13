@@ -7,6 +7,29 @@ Everything here is live on sandbox (`https://app.alytegen.com`).
 
 ## October 2026
 
+### Buy inside your chat with the browser SDK
+
+`@alytegen/sdk` 0.4.0 adds `@alytegen/sdk/browser`: your page exchanges a minted
+session for a bounded bearer held in memory, opens Alyte's consent view inline
+when the buyer needs an agent (verification and card entry happen inside it), and
+buys or queues within the permission — no redirect, no cookies. Sign-in and
+verification routes are refused to partner origins; the bounded bearer cannot
+create or widen spending authority. [Details →](/guides/chat-consent) ·
+[Browser access and CORS →](/guides/browser-api)
+
+### Up to three embed origins
+
+`embedOrigin` accepts up to three bare origins (space- or comma-separated), so
+production and staging can both frame the authorize page and call the buyer API.
+`http` is accepted for `localhost` only. [Details →](/guides/embedded-authorize)
+
+### Attested consent for contracted merchants
+
+Merchants Alyte staff enable under contract can mint with `merchantAttested: true`
+on a `mandates:attest` key: the buyer's permission is created within staff-set
+ceilings without the emailed code and shows "Set up by *shop*". Everyone else is
+refused with `403 merchant_consent_not_enabled`. [Details →](/guides/buyer-sessions)
+
 ### Buyers verify their email before granting an agent spending power
 
 Sessions you mint with `buyerSessions.mint` are now **bounded**. They can act

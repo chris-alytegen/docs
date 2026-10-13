@@ -1,0 +1,110 @@
+---
+title: "Browser access and CORS"
+description: "How the buyer API admits calls from your registered chat origin: bearer-only, bound to the buyer's shop, and never for sign-in or verification."
+---
+
+Pages on a registered embed origin can call `/v1/buyer/*` directly with the bounded
+buyer bearer. The [browser SDK](/guides/chat-consent) does this for you; this page is
+the contract it relies on, for when you call the API yourself or need to debug a
+refusal.
+
+## What the origin decides, and what it does not
+
+An origin is never evidence of buyer authority. **The bearer's tier is.** Browser
+origin checks decide only which pages may read a response. Two consequences:
+
+- A bounded bearer gets exactly the same answers from your page as from anywhere
+  else: it can act inside permission the buyer already granted and is refused
+  (`403 step_up_required`) when it tries to create or widen authority.
+- Sign-in and verification never happen on your origin. Those routes are refused
+  to every partner origin; they run inside Alyte's own pages and consent view.
+
+Cookies never authenticate a cross-origin call: responses carry no
+`Access-Control-Allow-Credentials`, and a request without `Authorization: Bearer …`
+is refused with `401`.
+
+## Preflight
+
+`OPTIONS /v1/buyer/*` succeeds (`204`) only when all of these hold:
+
+| Check | Allowed |
+|---|---|
+| `Origin` | a registered `embedOrigin` of **any** shop (preflight carries no credential, so it cannot know the shop yet) |
+| `Access-Control-Request-Method` | `GET`, `POST` or `DELETE` |
+| `Access-Control-Request-Headers` | only `Authorization` and `Content-Type` |
+
+The response allows exactly that origin, those methods and headers, and is cached
+for 30 seconds (`Access-Control-Max-Age: 30`). Anything else is `403`. A newly
+registered origin can take up to 30 seconds to be accepted.
+
+## Actual requests
+
+Evaluated in this order, before any handler runs:
+
+| Request | Result |
+|---|---|
+| No `Origin` header, or Alyte's own origin | Not a cross-origin call. Normal authentication applies. |
+| `Origin` is not a valid `http(s)` origin, or the method is not `GET`/`POST`/`DELETE` | `403 forbidden` |
+| `POST /v1/buyer/login`, `/verify`, `/step-up/send`, `/step-up/verify` from any partner origin | `403 forbidden` — Alyte surface only, no `Access-Control-Allow-Origin` |
+| No `Authorization: Bearer …` | `401 unauthorized` |
+| Bearer invalid or expired | `401 unauthorized`, **with** `Access-Control-Allow-Origin` when the origin is registered, so your page can read it and reconnect. No buyer data is returned. |
+| `Origin` is registered, but not for **the shop this bearer belongs to** | `403 forbidden` |
+| Otherwise | the handler runs; the response carries `Access-Control-Allow-Origin: <your origin>`, `Access-Control-Expose-Headers: Retry-After`, `Cache-Control: no-store`, `Vary: Origin` |
+
+Registering an origin on shop A does not let that page use a bearer minted for
+shop B.
+
+## The exchange endpoint
+
+```
+POST /v1/buyer/session-token
+{ "token": "<the token from redeemPath>" }
+→ 200 { "bearer": "…", "buyerId": "byr_…", "expiresAt": "2026-10-13T12:00:00.000Z" }
+```
+
+The body is exactly one string field; anything else is `400 validation_error`. The
+token is single-use: the exchange and the redeem link share one atomic claim, so a
+token can never yield both a bearer and a cookie session.
+
+| Situation | Result |
+|---|---|
+| Origin registered for the token's shop, token valid | `200`, bearer valid 30 minutes |
+| Token used, expired (15 minutes) or unknown | `401 link_invalid` (with `Access-Control-Allow-Origin` for a registered origin) |
+| Origin not registered for the token's shop | `403 forbidden` — **the token is not consumed**; fix the registration and exchange the same token |
+
+## Which routes a bounded bearer may call
+
+| Allowed with a bounded bearer | Refused `403 step_up_required` (the consent view does these) | Alyte surface only (`403` from partner origins) |
+|---|---|---|
+| `GET /me`, `/catalog`, `/agents`, `/instruments`, `/instruments/caps`, `/watches`, `/payments/{id}` | `POST /agents`, `POST /mandates` | `POST /login`, `POST /verify` |
+| `POST /agents/{id}/buy` (within the permission) | `POST /instruments/setup`, `POST /instruments/confirm` | `POST /step-up/send`, `POST /step-up/verify` |
+| `POST /watches`, `DELETE /watches/{id}` | `PUT /agents/{id}/instrument`, `PUT /instruments/cap` | |
+| `DELETE /mandates/{id}` (revoking only narrows) | | |
+
+All paths are under `/v1/buyer`.
+
+## Limits that matter in a browser
+
+| What | Limit |
+|---|---|
+| Bounded bearer | 30 minutes from exchange (`expiresAt`); then re-mint and exchange |
+| Sign-in token | 15 minutes, single use |
+| Mints per email | 3 per 15 minutes (`429 rate_limited`, `retryAfter`) |
+| Verification codes | 3 per buyer and shop per 10 minutes, issued inside the consent view |
+| Origin registration | up to 3 origins per shop; up to 30 seconds to reach preflight |
+
+A `429` carries `retryAfter` in seconds and the `Retry-After` header, which these
+responses expose to your page.
+
+## Troubleshooting
+
+- **`consent_unavailable` from the SDK, or a blank frame.** The page's origin is not
+  in the shop's `embedOrigin` (the frame is blocked by `frame-ancestors`), or the
+  registration is younger than 30 seconds. Check the exact origin: scheme, host and
+  port, no path.
+- **Every call answers `403`.** The origin is registered, but on a different shop
+  than the bearer's; or the origin is `http` outside localhost.
+- **`401 link_invalid` on exchange.** The token was already consumed — most often
+  because the page also navigated the redeem link — or it is older than 15 minutes.
+- **A `401 unauthorized` after it worked.** The bearer expired. Mint and exchange
+  again; the buyer's agents and permissions are unchanged.
