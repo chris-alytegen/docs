@@ -90,14 +90,9 @@ ask us when your contract is in place.
 
 Choose **attest verified customers only** in the console's API-key form.
 The key holds only `mandates:attest`, and read/write keys do not implicitly
-include it. [Console and API keys](/guides/console-api-keys) includes a working
-REST example and the SDK 0.4.0 typing limitation.
-
-## Planned replacement for the emailed code
-
-[Emailed consent confirmation](/guides/consent-confirmation) will replace the
-code with a link to an Alyte page showing the stored permission terms. It is
-not enabled today: step-up and the current `openConsent` flow still apply.
+include it. `@alytegen/sdk` 0.5.0 types the field
+(`buyerSessions.mint({ …, merchantAttested: true })`); [Console and API keys](/guides/console-api-keys)
+has the equivalent REST call.
 
 ## Properties worth knowing
 
