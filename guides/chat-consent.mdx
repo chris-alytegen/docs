@@ -194,7 +194,8 @@ has started survives closing the dialog, or your frame being torn down, and resu
 where it was (kept per buyer for a day; never a credential). Closing the consent view
 with a setup in progress asks "Discard this setup?" first; `cancelled` is sent only
 when the buyer confirms, so a host that closes its modal on `cancelled` never loses
-an unfinished setup by accident.
+an unfinished setup by accident. Nothing changes on your side: the same `cancelled`
+handling applies, it just fires less often by mistake.
 
 ## Bounded client reference
 
