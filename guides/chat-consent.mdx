@@ -173,7 +173,7 @@ other than these are ignored.
 | Field | Accepts | Default |
 |---|---|---|
 | `accent`, `background`, `surface`, `text` | opaque hex colour (`#RGB` or `#RRGGBB`) | from `scheme` |
-| `font` | `system`, `sans`, `serif` | `system` |
+| `font` | `system`, `sans`, `serif` | the page font (Hanken Grotesk) |
 | `radius` | integer 0–16 (px) | 8 |
 | `scheme` | `light`, `dark` | `light` |
 
@@ -183,7 +183,18 @@ values are ignored. If the resulting colours fail contrast checks (4.5:1 for tex
 scheme defaults — they are not adjusted. The permission terms, validation errors
 and disabled controls keep fixed readable colours, and payment-provider card inputs
 keep the provider's styling. The theme applies to this mounted view only; it does
-not change shop settings.
+not change shop settings. Omit `font` to keep Alyte's Hanken Grotesk; secondary text
+and dividers are derived from your palette with readable contrast.
+
+### Chrome, drafts and closing
+
+Inside your frame the view drops Alyte's own brand, account email and footer and
+shows a small "Secured by Alyte" line — your page owns the chrome. A setup the buyer
+has started survives closing the dialog, or your frame being torn down, and resumes
+where it was (kept per buyer for a day; never a credential). Closing the consent view
+with a setup in progress asks "Discard this setup?" first; `cancelled` is sent only
+when the buyer confirms, so a host that closes its modal on `cancelled` never loses
+an unfinished setup by accident.
 
 ## Bounded client reference
 
@@ -235,7 +246,7 @@ window.
 | view → you | `ready` | — | The document loaded. Reply with `bootstrap`. A language change reloads the frame: expect `ready` again and bootstrap again. |
 | you → view | `bootstrap` | `bearer` | Post to Alyte's origin with the bounded bearer. Accepted once per document, only from the parent window, only from a registered origin. |
 | view → you | `granted` | `agentId`, `mandateId` | Terminal. Remove the iframe. |
-| view → you | `cancelled` | — | Terminal. The buyer closed the view. |
+| view → you | `cancelled` | — | Terminal. The buyer closed the view — after confirming the discard when a setup was in progress. |
 | view → you | `error` | `code` | Terminal. For example `unauthorized` when the bearer expired. |
 | view → you | `resize` | `height` | Set the iframe height. |
 | view → you | `navigate` | `url` | The buyer clicked the Back link (`return`). The URL is on your origin; you decide whether to navigate. |

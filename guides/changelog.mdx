@@ -8,6 +8,45 @@ marked planned or not enabled.
 
 ## October 2026
 
+### Inside your chat: compact chrome, a draft that survives closing
+
+Framed by your page, the consent and authorize views drop Alyte's own brand,
+account email and footer and show a small "Secured by Alyte" line. A setup the
+buyer has started survives closing the dialog — or your frame — and resumes where
+it was (kept per buyer, for a day); the consent view asks "Discard this setup?"
+before cancelling, so your `cancelled` event arrives only when the buyer confirms.
+If you omit `font` in a theme, the view keeps Alyte's Hanken Grotesk; secondary
+text and dividers are derived from your palette with readable contrast.
+[Chat guide →](/guides/chat-consent)
+
+### Scopes: `merchant:admin` for shops and payment providers
+
+Creating or deleting a shop and linking a payment provider now require the new
+`merchant:admin` scope; `merchant:write` keeps catalog writes, webhooks,
+buyer-session minting and the shop's public settings. Every active key that held
+`merchant:write` was widened automatically, so existing integrations are
+unchanged. New keys get only what you ask for: choose the console's **full**
+preset for a backend that creates shops. [Getting access →](/guides/getting-access)
+
+### Console roles: owner and integrator
+
+A merchant can invite a partner as an **integrator**: API keys (never
+`merchant:admin`, and it revokes only keys it minted), the shop's embed origins
+(`PUT /v1/console/merchants/{id}/embed-origins`) and reads — never shops, payment
+providers, the catalog or the team. Console → **Team** → role *integrator*.
+
+### Console: attested consent in view, keys show last use
+
+Settings shows what merchant attestation produced — whether it is on, the
+per-buyer ceiling, the attest keys, permission counts, buyers near the ceiling
+and the recent permissions (`GET /v1/console/attested-consent`). An owner can
+withdraw a permission its attestation created, with a reason
+(`POST /v1/console/attested-consent/permissions/{id}/revoke`); withdrawing never
+replenishes the rolling allowance. The API-key list shows when each key was last
+used ("No usage recorded" until a key-bound token has been used) and marks attest
+keys "attestation disabled" while staff have the capability off.
+[Console and API keys →](/guides/console-api-keys)
+
 ### Attest-only keys in the console
 
 Enabled organizations can choose **attest verified customers only** in

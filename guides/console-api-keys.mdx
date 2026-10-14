@@ -71,13 +71,31 @@ For tools using a signed-in console session, `GET /v1/console/api-keys` returns
 the organization's keys and the availability flag:
 
 ```json
-{ "keys": [], "attestAvailable": true }
+{ "keys": [{ "id": "ak_…", "name": "Fieldpass attest", "scopes": ["mandates:attest"], "status": "active",
+            "lastUsedAt": "2026-10-14T12:31:57.219Z", "attestationDisabled": true }],
+  "attestAvailable": false }
 ```
+
+`lastUsedAt` is set the first time a token that names the key (`kid`) is used, at
+most once a minute; absent means no usage has been recorded. `attestationDisabled`
+appears on keys carrying `mandates:attest` while the capability is off — the key's
+`status` is never relabelled (a mixed-scope key keeps its other scopes).
 
 This is a console-session endpoint, not a merchant API-key endpoint.
 `attestAvailable` describes your own organization. It is a UI hint; minting
 still performs the server-side checks. A disabled organization receives
 `403 merchant_consent_not_enabled` if it tries to mint an attesting key.
+
+## Attested consent, as the console sees it
+
+`GET /v1/console/attested-consent` (any console role) returns whether attestation is
+on, the per-buyer ceiling and window, the contract reference, the attest keys,
+permission counts (active / expired / revoked), buyers as counts only (how many, how
+many within 20% of the ceiling) and the recent permissions. Settings shows the same
+as a card. An owner withdraws a permission its attestation created with
+`POST /v1/console/attested-consent/permissions/{id}/revoke` and a `reason`, kept in
+the audit trail; it is idempotent, refuses buyer-granted permissions, and never
+replenishes the rolling per-buyer allowance.
 
 ## Rotate or revoke
 
@@ -86,6 +104,7 @@ is checked server-side, so the old token stops working without waiting for its
 expiry. An attested buyer session also loses its attestation exception when
 its attesting key is revoked or staff disable the capability. Existing buyer
 permissions are managed separately; disabling attestation does not revoke them.
+An **integrator** may revoke only keys it minted; an **owner** may revoke any.
 
 See [Bring your own auth](/guides/buyer-sessions) for the difference between
 attesting a customer's identity and attesting their spending permission.
