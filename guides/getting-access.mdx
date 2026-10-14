@@ -14,6 +14,13 @@ a **WorkOS invitation email**; accepting it creates your login and attaches you
 to your organisation (your *tenant* — the isolation boundary all your data
 lives inside).
 
+### Roles
+
+Two console roles, chosen on the invitation:
+
+- **owner** — everything: shops, payment providers, catalog, team, and API keys of any scope.
+- **integrator** — for a partner that runs your integration on your behalf: API keys (`merchant:read`, `merchant:write`, `mandates:attest` — never `merchant:admin`), the shop's embed origins, and reads. It cannot create or delete shops, touch payment providers or the catalog, or invite anyone, and it can revoke only the keys it minted. Console → **Team** → role *integrator*.
+
 ## 2 · Know your environment
 
 | Environment | Base URL | What it's for |
@@ -29,7 +36,8 @@ Use sandbox for integration testing. Pages explicitly marked **planned** or
 Console → **API keys** → mint with the scopes you need:
 
 - `merchant:read` — catalog and payments reads
-- `merchant:write` — catalog writes, PSP links, buyer-session minting
+- `merchant:write` — catalog writes, webhooks, buyer-session minting, the shop's public settings (embed origins, discovery, image)
+- `merchant:admin` — creating or deleting shops and linking a payment provider (the money path). The console's **full** preset mints read + write + admin; `read + write` is right for a partner that runs your catalog, webhooks and buyer sessions but should not touch your shops or PSP
 - `mandates:attest` — the separate **attest verified customers only** choice,
   shown only when Alyte has enabled contracted attestation for your organization
 
