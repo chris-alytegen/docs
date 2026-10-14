@@ -16,9 +16,15 @@ Three credentials exist in this flow, and each stays where it belongs:
 | The **full verification credential** | Alyte's consent iframe, in memory, 30 minutes | create or widen permission, save a card |
 
 Your page never sees the third one, and your backend never sees the second. If the
-buyer has no permission yet, the consent view asks them to confirm a code emailed by
+buyer has no permission yet, an ordinary session's consent view asks them to confirm a code emailed by
 Alyte — inside the iframe — then creates the agent and permission and hands your
 page the resulting IDs.
+
+An enabled [merchant-attested session](/guides/console-api-keys) can instead
+create a permission within its configured ceilings without that code. The
+attest-only API key stays on your backend; the same browser helpers work with
+the resulting session. The [planned email-link flow](/guides/consent-confirmation)
+is not enabled yet.
 
 <Note>
 **Prerequisite.** This flow is offered to merchants onboarded under an Alyte contract
@@ -106,7 +112,7 @@ try {
 The SDK mounts Alyte's consent view as an iframe in `container`, hands it the
 bounded bearer through a parent-origin-checked message, and resolves when the
 buyer has chosen or created a permission. Choosing an existing usable agent
-needs no verification. Creating one does: the view sends a 6-digit code to the
+needs no verification. Creating one with an ordinary session does: the view sends a 6-digit code to the
 attested email and verifies it **inside the iframe**; card entry also happens
 there. On completion the iframe is removed and you receive IDs only.
 

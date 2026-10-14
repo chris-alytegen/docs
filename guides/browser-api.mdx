@@ -10,10 +10,11 @@ refusal.
 
 ## What the origin decides, and what it does not
 
-An origin is never evidence of buyer authority. **The bearer's tier is.** Browser
-origin checks decide only which pages may read a response. Two consequences:
+An origin is never evidence of buyer authority. Alyte checks session provenance,
+any live merchant-attestation capability and the existing permission server-side.
+Browser origin checks decide which pages may read a response. Two consequences:
 
-- A bounded bearer gets exactly the same answers from your page as from anywhere
+- An ordinary bounded bearer gets exactly the same answers from your page as from anywhere
   else: it can act inside permission the buyer already granted and is refused
   (`403 step_up_required`) when it tries to create or widen authority.
 - Sign-in and verification never happen on your origin. Those routes are refused
@@ -72,7 +73,13 @@ token can never yield both a bearer and a cookie session.
 | Token used, expired (15 minutes) or unknown | `401 link_invalid` (with `Access-Control-Allow-Origin` for a registered origin) |
 | Origin not registered for the token's shop | `403 forbidden` — **the token is not consumed**; fix the registration and exchange the same token |
 
-## Which routes a bounded bearer may call
+## Which routes an ordinary bounded bearer may call
+
+The table below covers sessions without the separately enabled
+[merchant-attestation exception](/guides/console-api-keys). Attestation permits
+specific creation routes within staff-set ceilings; it does not widen the
+browser's allowed methods or origin policy. Planned emailed-consent routes are
+[not enabled yet](/guides/consent-confirmation).
 
 | Allowed with a bounded bearer | Refused `403 step_up_required` (the consent view does these) | Alyte surface only (`403` from partner origins) |
 |---|---|---|

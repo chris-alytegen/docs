@@ -1,0 +1,95 @@
+---
+title: "Console and API keys"
+description: "Choose the right key for catalog work or contracted customer attestation, and rotate it safely."
+---
+
+Open **API keys** in your merchant console. An organization owner can mint and
+revoke keys; the token is shown once. Keep it on your server in a secret manager.
+
+## Choose a scope
+
+| Console choice | Scopes | Use it for |
+|---|---|---|
+| Read only | `merchant:read` | Catalog, payments, attempts and insights |
+| Read + write | `merchant:read`, `merchant:write` | Shop, inventory, PSP and webhook management; ordinary buyer-session minting |
+| Attest verified customers only | `mandates:attest` only | Minting a customer session with `merchantAttested: true` under an Alyte-approved contract |
+
+The attest-only choice appears only while Alyte staff have enabled
+merchant-attested consent for your organization. It does not give the key
+catalog or webhook access. A read/write key does not implicitly include
+`mandates:attest`.
+
+If enablement is removed while the form is open, a refreshed key list removes
+the option. If you had selected it, the form asks you to choose a scope before
+minting; it never substitutes a broader scope. The server also checks
+enablement when minting a key and when using the attestation.
+
+The new scope label may appear in English in another console language until
+that language's next translation update.
+
+## Use an attest-only key
+
+First verify the customer's email and collect their consent through your own
+contracted flow. Derive the email from your authenticated server session.
+Then call the buyer-session endpoint from your backend:
+
+```ts
+const response = await fetch(`${ALYTE_URL}/v1/integration/buyer-sessions`, {
+  method: 'POST',
+  headers: {
+    authorization: `Bearer ${process.env.ALYTE_ATTEST_TOKEN}`,
+    'content-type': 'application/json',
+  },
+  body: JSON.stringify({
+    merchantId,
+    email: user.email,
+    merchantAttested: true,
+  }),
+});
+if (!response.ok) throw new Error(`Buyer-session mint failed: ${response.status}`);
+const session = await response.json();
+```
+
+The response has the usual `buyerId`, `redeemPath` and `expiresAt`. Redirect to
+the redeem path, or extract its single-use token for the
+[browser exchange](/guides/chat-consent). Keep the API key on the backend.
+
+<Note>
+The REST field `merchantAttested` is supported today. Published SDK **0.4.0**
+does not include it in the `buyerSessions.mint` TypeScript input; use the REST
+example above for that mint. The resulting session works with the existing
+`exchangeBuyerSession` and `openConsent` browser helpers.
+</Note>
+
+Alyte enforces the configured currency, maximum duration and total permission
+amount per buyer over the configured window. Revoking or expiring a permission
+does not free that attestation allowance. Each attested permission needs a new
+Alyte agent with a saved card; recurring permissions require the buyer's own
+verification. Out-of-ceiling grants return
+`403 merchant_consent_ceiling_exceeded`; do not retry by splitting the amount
+across agents. The buyer can instead use Alyte's verification flow.
+
+## Console API response
+
+For tools using a signed-in console session, `GET /v1/console/api-keys` returns
+the organization's keys and the availability flag:
+
+```json
+{ "keys": [], "attestAvailable": true }
+```
+
+This is a console-session endpoint, not a merchant API-key endpoint.
+`attestAvailable` describes your own organization. It is a UI hint; minting
+still performs the server-side checks. A disabled organization receives
+`403 merchant_consent_not_enabled` if it tries to mint an attesting key.
+
+## Rotate or revoke
+
+Mint a replacement, update your backend, then revoke the old key. Revocation
+is checked server-side, so the old token stops working without waiting for its
+expiry. An attested buyer session also loses its attestation exception when
+its attesting key is revoked or staff disable the capability. Existing buyer
+permissions are managed separately; disabling attestation does not revoke them.
+
+See [Bring your own auth](/guides/buyer-sessions) for the difference between
+attesting a customer's identity and attesting their spending permission.

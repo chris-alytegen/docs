@@ -24,6 +24,7 @@
             "pages": [
               "index",
               "guides/getting-access",
+              "guides/console-api-keys",
               "guides/quickstart",
               "guides/first-integration",
               "guides/changelog"
@@ -35,6 +36,7 @@
               "guides/buyer-sessions",
               "guides/embedded-authorize",
               "guides/chat-consent",
+              "guides/consent-confirmation",
               "guides/browser-api",
               "guides/conversational-shopfront"
             ]

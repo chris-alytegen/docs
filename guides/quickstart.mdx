@@ -56,11 +56,15 @@ so a tier created with a future `onSaleStart` is never on sale early.
 **Unknown fields are refused** with `400` and the offending names in
 `details.fields`, so a typo can't silently drop a restriction.
 
-`@alytegen/sdk` 0.3.0's `createTier` type does not list these fields yet (the
-next release does). On 0.3.0, set them with `updateTier` straight after creating:
+`@alytegen/sdk` **0.4.0** includes these fields in `createTier`. Set scheduling
+and restrictions in that initial call so the tier is never briefly sellable:
 
 ```ts
-await alyte.updateTier(tier.id, { onSaleStart: '2026-10-01T09:00:00Z' });
+const { tier: scheduledTier } = await alyte.createTier({
+  eventId: event.id, title: 'Scheduled admission', kind: 'general',
+  priceMinor: 4900, currency: 'EUR', availableCount: 500,
+  onSaleStart: '2026-11-01T09:00:00Z', maxQtyPerPurchase: 2,
+});
 ```
 
 To confirm a scheduled tier, read it back with `GET /v1/integration/catalog`:
@@ -71,7 +75,9 @@ buyable now; it does not list individual upcoming tiers.
 
 ## 4 · Send a buyer to authorize their agent
 
-If your users are already signed in with **your** auth, attest them — no email round-trip:
+If your users are already signed in with **your** auth, carry their identity
+into Alyte. Creating spending authority still requires buyer verification
+unless you use the separately enabled contracted attestation flow:
 
 ```ts
 const s = await alyte.buyerSessions.mint({ merchantId: merchant.id, email: user.email });

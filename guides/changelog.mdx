@@ -3,9 +3,34 @@ title: "What's new"
 description: "Changes to the Alyte API and buyer pages that integrators should know about, newest first."
 ---
 
-Everything here is live on sandbox (`https://app.alytegen.com`).
+Entries below describe sandbox (`https://app.alytegen.com`) unless explicitly
+marked planned or not enabled.
 
 ## October 2026
+
+### Attest-only keys in the console
+
+Enabled organizations can choose **attest verified customers only** in
+**API keys**. The key has only `mandates:attest`. If enablement is removed,
+the option disappears; a selected option is cleared and minting waits for an
+explicit scope choice. The API-key list now includes `attestAvailable` for
+the signed-in organization. [Guide and REST example →](/guides/console-api-keys)
+
+### Consent confirmation by email link (planned)
+
+The approved replacement for the verification code uses an emailed link to
+an Alyte page that shows and executes stored terms. It is **not enabled**;
+the API core is under review, and the pages, mail delivery and new-card flow
+remain follow-up work. SDK 0.4.0 and the current step-up flow still apply.
+[Availability and planned contract →](/guides/consent-confirmation)
+
+### Saved-card setup checks
+
+Stripe card setup now verifies off-session setup and the card's customer
+association before saving it. Retrying verification after a successful setup
+reuses that setup. `card_preparation_unavailable` is retryable;
+`card_not_chargeable` and `card_customer_mismatch` need the buyer to correct
+the saved-card setup. [Errors →](/guides/errors)
 
 ### Buy inside your chat with the browser SDK
 

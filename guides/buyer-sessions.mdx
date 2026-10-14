@@ -21,9 +21,14 @@ const s = await alyte.buyerSessions.mint({
 ```
 
 Optional fields open the page as a checkout for one ticket type: `tierId`,
-`quantity` (1–10), `returnUrl` (https, under your registered embed origin) and
+`quantity` (1–10, requires `tierId`), `returnUrl` (HTTPS, or HTTP on `localhost`
+and `127.0.0.1`; under a registered embed origin when configured) and
 `lang` (a language tag such as `de` or `pt-BR`; the page also honours the
 buyer's own choice and browser language).
+
+Unknown fields and `quantity` without `tierId` return `400 validation_error`
+with the field names in `error.details.fields`. `returnUrl` is a back link,
+not an automatic redirect.
 
 4. You redirect the user to `ALYTE_URL + s.redeemPath`.
 5. They arrive on the shop's authorize page already signed in, and grant their
@@ -58,8 +63,8 @@ What it means for you:
   refused with `403 step_up_required`. That is the page's cue to ask for the
   code, not an error to retry.
 
-This applies to every merchant, so a mistaken or compromised attestation can
-never hand an agent new spending power.
+This is the ordinary identity-attestation path. The separately enabled
+contracted consent path below has its own authority and ceilings.
 
 ## In a chat: exchange instead of redirect
 
@@ -77,10 +82,22 @@ their customer's consent** themselves: a mint with `merchantAttested: true`, on 
 API key holding the dedicated `mandates:attest` scope, lets the buyer create a
 permission without the emailed code — within ceilings staff set for the shop
 (amount, currency, duration). The buyer sees "Set up by *your shop*" on that agent
-and can revoke it at any time. A request outside the ceiling falls back to the
-buyer's own verification. Without the enablement the mint is refused with
+and can revoke it at any time. A grant outside the ceiling returns
+`403 merchant_consent_ceiling_exceeded`; the buyer can use their own
+verification instead. Without the enablement the mint is refused with
 `403 merchant_consent_not_enabled`. This is not available to agent operators;
 ask us when your contract is in place.
+
+Choose **attest verified customers only** in the console's API-key form.
+The key holds only `mandates:attest`, and read/write keys do not implicitly
+include it. [Console and API keys](/guides/console-api-keys) includes a working
+REST example and the SDK 0.4.0 typing limitation.
+
+## Planned replacement for the emailed code
+
+[Emailed consent confirmation](/guides/consent-confirmation) will replace the
+code with a link to an Alyte page showing the stored permission terms. It is
+not enabled today: step-up and the current `openConsent` flow still apply.
 
 ## Properties worth knowing
 

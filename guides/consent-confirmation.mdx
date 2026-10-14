@@ -1,0 +1,61 @@
+---
+title: "Emailed consent confirmation (planned)"
+description: "The upcoming consent flow and what stays compatible with your current integration."
+---
+
+<Note>
+**Not available on sandbox yet.** The design is approved; the API core is under
+review and defaults to disabled. The confirmation pages, real email delivery,
+new-card completion and browser integration still need to ship. Continue using
+the current [chat consent](/guides/chat-consent) or hosted authorize flow.
+</Note>
+
+## What will change
+
+Today, ordinary merchant-minted sessions ask the buyer to enter an emailed code
+inside Alyte before creating spending authority. The planned replacement records
+the complete permission first, then emails the buyer a link to an Alyte page.
+That page displays the stored terms; confirmation executes those exact terms.
+
+The email step will also apply to buyers already signed in on the hosted page.
+An ordinary session will still be able to buy within existing permissions,
+revoke them, and request a new consent. It will no longer create or widen
+authority directly. Separately enabled
+[merchant-attested consent](/guides/console-api-keys) stays available within its
+configured ceilings.
+
+## Planned API
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/buyer/consents` | Record a grant or card-limit change, using a client `requestId`, and request delivery of its confirmation link |
+| `GET /v1/buyer/consents/{id}` | Poll the consent's status and resulting agent/mandate IDs |
+| `POST /v1/buyer/consents/{id}/resend` | Request a replacement link; earlier links become invalid |
+| `DELETE /v1/buyer/consents/{id}` | Cancel a pending consent |
+
+These routes are absent while the feature is disabled. The deployment's
+[OpenAPI document](https://app.alytegen.com/openapi.public.json) remains the
+reference for enabled routes.
+The confirmation link belongs to the buyer: the planned real-email response
+will not return it to the merchant's API caller. Confirmation and decline
+calls belong to Alyte's confirmation page.
+
+After activation, direct creation or widening with an ordinary session will
+return `403 consent_confirmation_required`. The old step-up endpoints will
+return `410 step_up_retired` for one release before removal. Those changes
+are not active today.
+
+## SDK and console impact
+
+The planned `openConsent` signature and `{ agentId, mandateId }` result stay
+the same. Alyte's view will show the email step and poll for completion.
+SDK 0.4.0 has no `consents.create` or consent-polling client methods; do not
+build against those as if they were released exports.
+
+The console's attest-only key remains a separate capability. An organization
+owner cannot enable it by selecting a scope; Alyte staff must first enable
+the contracted flow. No console setting activates the emailed-consent design.
+
+New-card completion and passkey approval are follow-up work. We will update
+this page and [What's new](/guides/changelog) when the flow is available for
+integration testing.
