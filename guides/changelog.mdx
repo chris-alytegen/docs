@@ -16,13 +16,18 @@ the option disappears; a selected option is cleared and minting waits for an
 explicit scope choice. The API-key list now includes `attestAvailable` for
 the signed-in organization. [Guide and REST example →](/guides/console-api-keys)
 
-### Consent confirmation by email link (planned)
+### SDK 0.5.0 types the attested mint
 
-The approved replacement for the verification code uses an emailed link to
-an Alyte page that shows and executes stored terms. It is **not enabled**;
-the API core is under review, and the pages, mail delivery and new-card flow
-remain follow-up work. SDK 0.4.0 and the current step-up flow still apply.
-[Availability and planned contract →](/guides/consent-confirmation)
+`buyerSessions.mint({ merchantId, email, merchantAttested: true })` is typed from
+`@alytegen/sdk` 0.5.0; the REST field was already accepted. Nothing else changes.
+
+### Withdrawn: the emailed consent confirmation announced as planned
+
+An entry here earlier this month described a planned replacement of the
+verification code by an emailed link. That plan is withdrawn and will not ship.
+The current system is the system: enabled merchants attest within their
+ceilings; everyone else confirms the emailed code inside Alyte's screen.
+Nothing in your integration changes.
 
 ### Saved-card setup checks
 
