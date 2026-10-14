@@ -14,6 +14,13 @@ a **WorkOS invitation email**; accepting it creates your login and attaches you
 to your organisation (your *tenant* — the isolation boundary all your data
 lives inside).
 
+### Roles
+
+Two console roles, chosen on the invitation:
+
+- **owner** — everything: shops, payment providers, catalog, team, and API keys of any scope.
+- **integrator** — for a partner that runs your integration on your behalf: API keys (`merchant:read`, `merchant:write`, `mandates:attest` — never `merchant:admin`), the shop's embed origins, and reads. It cannot create or delete shops, touch payment providers or the catalog, or invite anyone, and it can revoke only the keys it minted. Console → **Team** → role *integrator*.
+
 ## 2 · Know your environment
 
 | Environment | Base URL | What it's for |
