@@ -8,6 +8,19 @@ marked planned or not enabled.
 
 ## October 2026
 
+### Adyen connections: keys tested on save, origins spelled out
+
+Linking or editing an Adyen connection with a new API key now makes one read-only call
+to Adyen first. A key Adyen refuses is not saved: the console and
+`POST /v1/integration/merchants/{id}/psps` answer `422 psp_credentials_rejected` with the
+reason; a verified key reports `credentialCheck: { "status": "verified" }`, an unreachable
+Adyen saves the key and reports `unverified`. A card setup against a key Adyen refuses now
+fails with `409 capture_unavailable` and tells the buyer the shop must update its
+credentials, instead of a retryable `502`. The new guide explains the two origin lists
+(your embed origins in Alyte; Alyte's origin in the Adyen credential), the signed webhook
+and the test cards. Live on sandbox since revision `alyte-sandbox-00122-9j8`.
+[Connect Adyen →](/guides/connect-adyen)
+
 ### Inside your chat: compact chrome, a draft that survives closing
 
 Framed by your page, the consent and authorize views drop Alyte's own brand,

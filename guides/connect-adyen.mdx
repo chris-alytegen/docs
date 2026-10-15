@@ -1,0 +1,160 @@
+---
+title: "Connect Adyen (sandbox)"
+description: "Link an Adyen test account to a shop: the credentials, the two origin lists that are easy to confuse, the signed webhook, what the console checks on save, and how Adyen payments report."
+---
+
+Alyte can run a shop's card setup and agent purchases on **your Adyen test account**
+instead of Stripe. Buyers save a card through Adyen's own card component on Alyte's
+authorize page (a zero-value authorisation that attempts 3D Secure), and agents later
+charge that saved card as a merchant-initiated, unscheduled card-on-file payment with
+manual capture. Money settles on your Adyen merchant account; Alyte never holds it.
+
+<Warning>
+Adyen is available on **sandbox only** (`https://app.alytegen.com`) and against Adyen's
+**test** environment. Nothing here applies to a live Adyen account yet.
+</Warning>
+
+## What you need from Adyen
+
+In the Adyen test Customer Area:
+
+| Item | Where | Notes |
+|---|---|---|
+| **Merchant account** | Account → Merchant accounts | The account code, for example `YourCompanyECOM`. Not the credential username (`ws@Company.YourCompany`). |
+| **API key** | Developers → API credentials → your credential → Server settings → Authentication | Shown once when generated. Use the copy button; a hand-selected copy that gains or loses a character is refused on save. |
+| **Client key** | Same credential → Client settings | Starts with `test_`. It must come from the **same** credential as the API key. |
+| **Checkout roles** | Same credential → Roles | The Checkout API roles Adyen grants web-service credentials by default. |
+| **3D Secure result data** | Developers → **Additional data** → 3D Secure → **3D Secure result** | **Required.** Adyen reports whether a saved card authenticated only when this is on. Without it every card saves with no authentication evidence, and agents cannot charge it (`422 authentication_evidence_required`). Enable it before buyers save cards; cards saved earlier must be saved again. |
+
+## The two origin lists, and which one Adyen checks
+
+Two settings sound alike and live in different places. Both are needed, and they
+hold **different** origins.
+
+| List | Holds | Set where | Governs |
+|---|---|---|---|
+| **Alyte embed origins** | *Your* website origins, up to three (`https://yourshop.example`) | Console → **Website integration**, or `embedOrigin` on the shop ([Embedded authorize](/guides/embedded-authorize)) | Which pages may frame the authorize page, receive its messages and call the buyer API from the browser ([Browser access and CORS](/guides/browser-api)) |
+| **Adyen allowed origins** | *Alyte's* buyer-page origin: `https://app.alytegen.com` | Adyen Customer Area → the API credential → **Client settings → Allowed origins** | Whether Adyen's card component is allowed to load with your client key |
+
+The card form is Adyen's component running on Alyte's authorize page, so Adyen
+checks **Alyte's** origin, not your site's. The console shows the exact value to add
+on the Adyen connection form. If the form never renders while the console reports
+the connection as configured, this is the setting to check first.
+
+## 1 · Link the connection
+
+**Console:** Payments → **Connect** (or **Edit connection** on an existing Adyen
+row) → merchant account, API key, client key, rate in basis points (informational),
+and **Primary?**.
+
+**API** (`merchant:admin` scope):
+
+```
+POST /v1/integration/merchants/{merchantId}/psps
+{
+  "psp": { "id": "adyen", "name": "Adyen" },
+  "secret": "<API key>",
+  "publishableKey": "<test_ client key>",
+  "rateBps": 290,
+  "isDefault": false
+}
+```
+
+The API body does not carry the merchant account yet; set it once in the console.
+
+### Saving tests the key
+
+Before the key is stored, Alyte makes one read-only call to Adyen with it. Three
+outcomes:
+
+| Outcome | What you see | Meaning |
+|---|---|---|
+| **Accepted** | Console: "Adyen accepted the API key for this merchant account." API: `credentialCheck: { "status": "verified" }` | The key works for that merchant account. |
+| **Refused** | `422 psp_credentials_rejected`; the message says why | Adyen returned 401 (the key itself is invalid: regenerated, truncated, or from another environment) or 403 (the key has no access to this merchant account). **Nothing is saved.** |
+| **Not tested** | Console: "could not be reached to test the API key." API: `credentialCheck: { "status": "unverified", "cause": "timeout" }` | Adyen was unreachable. The key is saved; card setup reports any problem later. |
+
+Editing a connection without entering a new key skips the test and keeps the saved key.
+
+### Primary
+
+*Primary prefers this provider for compatible new card setups. Existing cards stay with
+their original provider.* A card saved on Stripe cannot be charged through Adyen and
+vice versa (`409 instrument_provider_mismatch`). Switching primary changes where **new**
+cards go; it does not move anything.
+
+## 2 · The signed webhook (needed for payments)
+
+Card setup works with the credentials alone. Payments additionally need Adyen's
+notifications, verified by HMAC, so Alyte can confirm captures.
+
+1. Adyen Customer Area → Developers → Webhooks → **Standard webhook**, URL:
+   ```
+   https://app.alytegen.com/v1/webhooks/adyen/{organizationId}/{shopId}
+   ```
+   `organizationId` is your Alyte organization (`org_…`), `shopId` the shop (`mrc_…`), both
+   shown in the console.
+2. Under **Additional settings → HMAC key**, generate a key, copy it, and **Save changes**
+   on the webhook. The key is active only after the webhook is saved.
+3. Alyte enables payments for the connection with you during sandbox onboarding, using
+   that HMAC key. Share it through the secure channel agreed at onboarding, never by
+   email or chat. Until this is done the console shows **Payments need: Sandbox payment
+   enablement, Signed webhook connection**.
+4. Keep these event codes enabled: `AUTHORISATION`, `CAPTURE`, `CAPTURE_FAILED`,
+   `CANCELLATION`, `REFUND`, `REFUND_FAILED`, `REFUNDED_REVERSED`.
+5. Use Adyen's **Test configuration**. Expected: `200 [accepted]`.
+
+| Test result | Meaning |
+|---|---|
+| `200 [accepted]` | Signed, verified, stored. |
+| `401` | The HMAC key Alyte holds is not the one active on this webhook. Regenerate, **save the webhook**, and share the new key. |
+| `503` | Alyte could not use its stored key (for example it was not stored cleanly). Tell Alyte; nothing to change in Adyen. |
+| `400` | The body was not an Adyen Standard notification. |
+
+## What the console checks
+
+Each payment connection shows four lines:
+
+- **Configuration: Saved · …** — credentials and merchant account present.
+- **Card setup: …** — whether new cards can be saved through this connection on this deployment.
+- **Card verification: Not recorded in setup** — card authentication is proven per card, at setup time, never assumed from configuration.
+- **Payments: …** — and, when something is missing, **Payments need: API key / Merchant account / Sandbox payment enablement / Signed webhook connection**.
+
+Configuration never manufactures a verified-payment badge: a connection can be fully
+configured and still have no proven payment until a real one completes.
+
+## Test cards
+
+All Adyen test cards: expiry **03/2030**, CVC **737**.
+
+| Card | Number | Behaviour when saved |
+|---|---|---|
+| Mastercard | `5201 2815 0512 9736` | 3DS2 frictionless: authenticates with no prompt. The usual choice. |
+| Visa | `4212 3456 7891 0006` | 3DS2 challenge; the password in the challenge window is `password`. |
+| Visa | `4111 1111 1111 1111` | No 3DS. Saves, but carries no authentication evidence, so an agent cannot charge it. |
+
+## How Adyen payments report
+
+Adyen confirms captures asynchronously, so an agent purchase on Adyen moves through
+one more state than on Stripe:
+
+| Alyte status | Meaning on Adyen | Your action |
+|---|---|---|
+| `pending` (`paymentState: authorization_pending`, `capture_pending` or `requires_action`) | Authorised, capture not yet confirmed | Nothing yet. Do not fulfil, do not retry. |
+| `authorized` + `payment.settled` webhook | The signed `CAPTURE` notification arrived | Fulfil. This is the only point at which tickets should issue. |
+| `declined` | Adyen refused | Terminal. Alyte released the hold and restored stock. |
+| `error` with `paymentState: reconciliation_required` + `payment.reconciliation_required` webhook | Adyen's answer was indeterminate | **In flight, not a decline.** Alyte never retries a possibly-succeeded charge. Keep the order open until it resolves. |
+
+See [Payment lifecycle](/guides/lifecycle) and [Webhooks](/guides/webhooks) for the
+event shapes.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The card form never renders; the console says the connection is configured | `https://app.alytegen.com` is missing from the Adyen credential's allowed origins | Add it under Client settings on that credential. |
+| Saving the connection is refused with "Adyen rejected this API key (401)" | The pasted key is not a key Adyen accepts: regenerated since, one character off, or from the live environment | Generate a new key on the credential that owns the client key, copy with the copy button, save again. |
+| Refused with "no access to merchant account … (403)" | The credential cannot use that merchant account, or the account code is misspelled | Use a credential with access, or correct the account code. |
+| A buyer sees "card setup is paused until the shop updates them" (`409 capture_unavailable`) | Adyen refuses the saved key at card-setup time (it was changed in Adyen after saving) | Re-enter the key in Payments → Edit connection. |
+| An agent purchase is refused with `422 authentication_evidence_required` ("this card did not authenticate when it was saved") | The Adyen account did not report the 3D Secure result when the card was saved: **3D Secure result** additional data is off, or the card did not authenticate | Enable the additional data (table above), then have the buyer save the card again. |
+| A buyer's saved card is refused at purchase (`409 instrument_provider_mismatch`) | The card was saved on another connection | The buyer saves a card again on the current primary connection. |
+| Webhook Test configuration returns `401` | HMAC key mismatch | Regenerate, save the webhook, share the new key with Alyte. |
