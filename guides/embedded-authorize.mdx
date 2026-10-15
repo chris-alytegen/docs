@@ -29,6 +29,12 @@ authorize page serves `frame-ancestors 'self' <your origins>` and drops
 list is where the page posts its messages, and which browser origins may call the
 buyer API with a bearer ([Browser access and CORS](/guides/browser-api)).
 
+<Note>
+On Adyen? This list is **your** site. Adyen keeps a separate allowed-origins list on
+your API credential, and that one needs **Alyte's** origin, not yours — see
+[Connect Adyen](/guides/connect-adyen#the-two-origin-lists-and-which-one-adyen-checks).
+</Note>
+
 ## 2 · Frame the redeem URL, not the authorize URL
 
 Mint the buyer session server-side ([Bring your own auth](/guides/buyer-sessions)),
