@@ -1,0 +1,117 @@
+---
+title: "Shared inventory and venue locations"
+description: "Let several ticket types draw on one capacity, pin a venue and its time zone to an event, and read a consistent inventory observation — API and SDK 0.6.0."
+---
+
+Two things most venues need and a tier-per-counter model can't express:
+
+- **One capacity, several prices.** Adult and child tickets for the same show share the same
+  100 places. Selling 60 adults must leave 40 for children, not 100.
+- **A venue's own clock.** "On sale Friday at 10:00" means 10:00 where the show is, not where
+  your server or your staff happen to be.
+
+Both are available on the integration API and in `@alytegen/sdk` **0.6.0**. One API key with
+`merchant:read` and `merchant:write` manages all of it.
+
+## Shared pools
+
+A **pool** is a capacity that several general-admission tiers draw on. A pooled tier has no
+counter of its own: every sale, hold and release moves the pool's count, and it can never sell
+more than the pool holds. That guarantee is enforced by the database in one atomic step, the
+same way as a single tier.
+
+```ts
+import { AlyteMerchant } from '@alytegen/sdk';
+const alyte = new AlyteMerchant({ baseUrl: 'https://app.alytegen.com', token: process.env.ALYTE_API_TOKEN });
+
+const { pool } = await alyte.createPool({
+  merchantId, eventId: show.id, title: 'General admission', capacity: 100,
+});
+await alyte.createTier({ eventId: show.id, title: 'Adult', kind: 'general',
+  priceMinor: 2500, currency: 'EUR', poolId: pool.id });
+await alyte.createTier({ eventId: show.id, title: 'Child', kind: 'general',
+  priceMinor: 1500, currency: 'EUR', poolId: pool.id });
+```
+
+REST: `POST /v1/integration/pools`, `GET /v1/integration/pools?merchantId=…`,
+`PATCH /v1/integration/pools/{id}`, and `poolId` on `POST /v1/integration/tiers` and
+`PATCH /v1/integration/tiers/{id}`.
+
+Rules worth knowing before you build on them:
+
+| You want to | Do this |
+|---|---|
+| Restock | `updatePool(poolId, { availableCount })`. It **sets** the remaining places; it is not an increment. Queued agent watches on every tier of the pool are re-evaluated immediately, exactly like a tier restock. |
+| Rename a pool | `updatePool(poolId, { title })`, omitting `availableCount`, so concurrent sales are not overwritten. |
+| Restock one pooled tier | Not possible: a pooled tier refuses `availableCount`. Restock the pool. |
+| Move a tier to another pool, or back to its own counter | `updateTier(tierId, { poolId })`, or `{ poolId: null, availableCount }`. Refused while the tier has a live hold; retry once it is released or expires. |
+| Share across events | Create the pool without `eventId` (shop-wide). An event-scoped pool only serves tiers of that event, and a pool only ever serves tiers of its own shop. |
+
+Seated tiers keep their own seats and cannot draw on a pool.
+
+## Venue locations
+
+A **location** is optional metadata on your shop: a name and an
+[IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) such as
+`Europe/Warsaw`. It is not a separate account and does not own inventory; an event works
+without one.
+
+```ts
+const { location } = await alyte.createLocation(merchantId, {
+  name: 'Our theatre', timeZone: 'Europe/London',
+});
+const { event: show } = await alyte.createEvent({
+  merchantId, title: 'Evening show', startsAt: '2027-05-01T20:00:00+01:00',
+  location: { id: location.id, expectedRevision: location.revision },
+});
+```
+
+Event creation with a location is all-or-nothing: if the location changed since you read it,
+or belongs to another shop, neither the event nor the binding is saved.
+
+**Versions, not live links.** Every edit to a location creates a new version. An event stays
+pinned to the version it was bound to until you rebind it, so renaming a venue or correcting its
+time zone never silently moves an existing show. Rebinding or clearing a location never
+reschedules the event either: `startsAt` is always an explicit instant.
+
+| Call | Meaning |
+|---|---|
+| `listLocations(merchantId)` | The shop's current location defaults. |
+| `updateLocation(merchantId, locationId, { name, timeZone, expectedRevision })` | Create the next version. |
+| `getSlot(merchantId, eventId)` | The event's occurrence and the location version it is pinned to. |
+| `setSlotLocation(merchantId, eventId, { locationId, expectedRevision, expectedLocationRevision })` | Bind or rebind. Clear with `{ locationId: null, expectedRevision }`. |
+
+REST: `GET|POST /v1/integration/merchants/{id}/locations`,
+`PATCH …/locations/{locationId}`, `GET …/slots/{slotId}`, `PUT …/slots/{slotId}/location`.
+
+**Stale edits are refused.** Every write carries the revision you read. If someone else changed
+it in between, you get `409 commerce_schedule_conflict`: reload and retry. When a sale-window
+edit depends on the event's venue time, pass `expectedOccurrenceRevision` to `updateTier` so
+the edit is refused if the venue binding moved since you computed the time.
+
+## Reading inventory
+
+`inventoryCatalog(merchantId)` (`GET /v1/integration/merchants/{id}/inventory`) returns one
+consistent snapshot of a shop: offers, base prices, sale windows, the pinned venue of each
+event, and the live count of every inventory source. Several offers on one pool reference the
+same source, so you see one counter, not one per price.
+
+- It is an **observation**: counts can change a moment later, and `capabilities` says
+  `reserve`, `quote` and `purchase` are all `false`. Buying still goes through the normal
+  quote, reserve and confirm flow.
+- Prices are `kind: "unit_base"` in integer minor units, before fees and tax.
+- Buyer and agent allow-lists are never exposed; an offer only says `principalRestricted`.
+- A shop larger than 2,000 rows in any relation returns `413 catalog_too_large` rather than a
+  partial answer. `listLocations` has its own 2,000-row bound.
+
+## Event creation is strict
+
+`POST /v1/integration/events` accepts exactly `merchantId`, `title`, `startsAt` (with an explicit
+offset) and the optional `location`. Any other field returns `400`; it used to be ignored. The
+SDK and integrations that send only those fields are unaffected.
+
+## In the console
+
+Shop owners get the same controls under **Inventory**: create and edit pools, attach tiers to a
+pool, create and assign locations, and edit times in the venue's own zone. Events without a
+venue are shown and edited in UTC, and labelled so.

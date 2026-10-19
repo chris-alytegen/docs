@@ -8,6 +8,21 @@ marked planned or not enabled.
 
 ## October 2026
 
+### SDK 0.6.0: shared pools and venue locations
+
+Several ticket types can now draw on one capacity (a **pool**), and an event can be pinned to a
+versioned **venue location** with its own time zone. `@alytegen/sdk` 0.6.0 adds `createPool`,
+`listPools`, `updatePool`, `createLocation`, `listLocations`, `updateLocation`, `getSlot`,
+`setSlotLocation`, `createEvent({ location })` and a read-only `inventoryCatalog` observation.
+Shop owners get the same controls in the console under **Inventory**. Live on sandbox since
+revision `alyte-sandbox-00132-9ts`. [Shared inventory and locations →](/guides/shared-inventory)
+
+### Event creation refuses unknown fields
+
+`POST /v1/integration/events` now returns `400` for any field other than `merchantId`, `title`,
+`startsAt` and the optional `location`; extra fields used to be ignored. The SDK and integrations
+that send only those fields are unaffected. `startsAt` still needs an explicit offset.
+
 ### Adyen connections: keys tested on save, origins spelled out
 
 Linking or editing an Adyen connection with a new API key now makes one read-only call
