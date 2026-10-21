@@ -47,6 +47,7 @@
               "guides/connect-adyen",
               "guides/inventory-and-fulfilment",
               "guides/shared-inventory",
+              "guides/access-rules",
               "guides/webhooks",
               "guides/lifecycle",
               "guides/errors"
