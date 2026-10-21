@@ -1,0 +1,93 @@
+---
+title: "Early access and membership"
+description: "Open a ticket tier early for members or for holders of a card scheme, decided by Alyte on every purchase — API and SDK 0.7.0."
+---
+
+An **access rule** opens a tier before its general sale for a defined audience: your members
+at chosen levels, holders of a card scheme, or everyone. Alyte decides eligibility itself on
+discovery, quotes, holds, watches and the final check before payment. What a buyer or an agent
+says about itself never qualifies.
+
+Available on the integration API and in `@alytegen/sdk` **0.7.0**. One API key with
+`merchant:read` and `merchant:write` manages rules and membership. Shop owners get the same flow
+in the console under **Access rules**.
+
+## Audiences
+
+| Audience | Who qualifies |
+|---|---|
+| `{ kind: 'membership', programId, levels }` | buyers you have attested as members at one of the listed levels, valid at the purchase time |
+| `{ kind: 'scheme', schemes: ['amex'] }` | buyers whose **saved card** is on that scheme; the instrument decides, not the request |
+| `{ kind: 'everyone' }` | any buyer, inside the window |
+
+Levels are explicit: listing `Gold` does not imply `Platinum`. Membership grants early access
+only. It never grants payment permission, which still comes from the buyer's own grant.
+
+## Create, review, schedule
+
+A rule starts as an inactive draft. You preview its current impact, then publish it with the
+preview's ID and the rule's revision, so nothing goes live that an operator has not reviewed.
+
+```ts
+import { AlyteMerchant } from '@alytegen/sdk';
+const alyte = new AlyteMerchant({ baseUrl: 'https://app.alytegen.com', token: process.env.ALYTE_API_TOKEN });
+
+const { program } = await alyte.memberships.createProgram(shopId, {
+  requestId: crypto.randomUUID(), name: 'Members', levels: ['Gold', 'Platinum'],
+});
+const { rule } = await alyte.accessRules.createDraft(shopId, {
+  requestId: crypto.randomUUID(), offerId: tier.id, name: 'Member presale',
+  audience: { kind: 'membership', programId: program.id, levels: ['Gold', 'Platinum'] },
+  opensAt: '2027-05-01T09:00:00+01:00',
+  closesAt: '2027-05-01T10:00:00+01:00', // must end by the tier's general-sale opening
+});
+const preview = await alyte.accessRules.preview(shopId, rule.id);
+// Show preview.impact, preview.timeZone and the window to the operator.
+await alyte.accessRules.schedule(shopId, rule.id, {
+  requestId: crypto.randomUUID(), expectedRevision: rule.revision, previewId: preview.id,
+});
+```
+
+- **Times need an explicit offset.** The preview reports the venue's time zone so an operator
+  can check the window in local time.
+- **Windows on one tier cannot overlap**, and each must end by the tier's general sale.
+- **Published rules cannot be edited.** To cancel, call `preview(shopId, ruleId, 'cancel')`,
+  then `cancel` with that preview's ID, the current revision and a new request ID.
+- **Impact counts are observations**, not stock forecasts or queue positions.
+- **Every change carries a request ID.** Store it with the input before sending. Resending the
+  same ID and input is safe after an uncertain response; changed input needs a new ID.
+
+Over HTTP, the same operations live under `/v1/integration/merchants/{shopId}/access`:
+`rules`, `rules/{ruleId}`, `rules/{ruleId}/preview`, `rules/{ruleId}/schedule`,
+`rules/{ruleId}/cancel`, `programs` and `programs/{programId}/members/{buyerId}`.
+
+## Attesting membership
+
+You attest membership for the **Alyte buyer ID**: the `buyerId` returned by
+[`buyerSessions.mint`](/guides/buyer-sessions). Keep a mapping from your signed-in customer to
+that value. Your own customer ID will not match, and the ID must never be guessed from an email.
+
+```ts
+const session = await alyte.buyerSessions.mint({ merchantId: shopId, email: user.email });
+await alyte.memberships.upsert(shopId, program.id, session.buyerId, {
+  requestId: crypto.randomUUID(), sourceRevision: 1, level: 'Gold',
+  validFrom: '2027-01-01T00:00:00Z', validUntil: '2028-01-01T00:00:00Z',
+  evidenceRef: 'membership-system:record-123', revoked: false,
+});
+```
+
+To change or revoke, send a new request ID with a **strictly greater** `sourceRevision`.
+Revocation takes effect for the next purchase decision.
+
+## What buyers and agents see
+
+Before a buyer's window opens, discovery reports the tier as not yet on sale with a
+`retryAfter` at the buyer's own opening time. An agent that tries to buy too early gets
+`409 access_waiting` with the same `retryAfter`; nothing was charged, so retrying at that time
+with the same idempotency key is safe. Once general sale opens, rules no longer apply.
+
+## Changing a tier that has rules
+
+While a scheduled window exists, the tier's general-sale time cannot change
+(`409 access_conflict`). Cancel the windows first. Deleting a tier archives its rules: they
+leave the list, and reading one by ID returns `status: 'archived'` with its history.

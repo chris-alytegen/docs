@@ -8,6 +8,22 @@ marked planned or not enabled.
 
 ## October 2026
 
+### SDK 0.7.0: early access and membership
+
+Shops can open a tier early for their members at chosen levels, for holders of a card scheme, or
+for everyone, ahead of general sale. Alyte checks eligibility itself on every purchase step.
+`@alytegen/sdk` 0.7.0 adds `accessRules` (`list`, `get`, `createDraft`, `updateDraft`,
+`preview`, `schedule`, `cancel`) and `memberships` (`createProgram`, `upsert`). Owners get the
+same flow in the console under **Access rules**. An agent that tries too early gets
+`409 access_waiting` with a `retryAfter`. Live on sandbox since revision
+`alyte-sandbox-00133-v77`. [Early access and membership →](/guides/access-rules)
+
+### Buyer pages show the venue's time zone
+
+Order cards, event selectors and on-sale messages now show times in the event's pinned venue
+time zone and name it, so a buyer elsewhere sees the right day. Public discovery adds the pinned
+venue's name and time zone to each event.
+
 ### SDK 0.6.0: shared pools and venue locations
 
 Several ticket types can now draw on one capacity (a **pool**), and an event can be pinned to a
