@@ -14,14 +14,15 @@ A confirm from an agent with no spending authority (no permission from the buyer
 cap) now returns `422 mandate_invalid` before anything is charged. It used to return
 `202 sca_required` with a challenge the agent could answer itself. Production also refuses a
 bank challenge that Alyte cannot verify yet (`422 sca_unavailable`). Agents acting under a
-buyer's permission are unaffected. [Agent buy →](/guides/agent-buy)
+buyer's permission are unaffected. Live on sandbox since revision `alyte-sandbox-00135-s92`.
+[Agent buy →](/guides/agent-buy)
 
 ### Hosted-checkout shops answer 409; checkout retries are safe
 
 Reserving at a shop that sells only through its own checkout page returns
 `409 hosted_checkout_required` with `details.checkoutUrl`, instead of a `500`. `POST /v1/checkout`
 now honours `Idempotency-Key`: retrying with the same key returns the original payment instead of
-charging again. [Errors →](/guides/errors)
+charging again. Live on sandbox since revision `alyte-sandbox-00135-s92`. [Errors →](/guides/errors)
 
 ## October 2026
 
