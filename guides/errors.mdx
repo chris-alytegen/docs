@@ -16,7 +16,8 @@ Every error response has one shape:
 
 | Class | Examples | What to do |
 |---|---|---|
-| **Mandate refusals** | spend cap, scope, expiry, ownership | The buyer's limits said no. Surface to the buyer; **do not retry** — the answer won't change. |
+| **Mandate refusals** | spend cap, scope, expiry, ownership; an agent with **no** mandate is refused at confirm (`422 mandate_invalid`) | The buyer's limits said no. Surface to the buyer; **do not retry** — the answer won't change. |
+| **Hosted checkout** (`409 hosted_checkout_required`, `details.checkoutUrl`) | the shop sells only through its own checkout page, so Alyte cannot reserve or pay there | Send the buyer to `details.checkoutUrl`. Do not retry the reserve. |
 | **Catalog refusals** | not on sale yet, quantity cap, geo/scheme restriction, sold out | Terminal for this request. `not_yet_on_sale` includes a `retryAfter` — schedule, don't poll. |
 | **Validation** (`400`) | float prices, malformed bodies | Fix the request. Money is integer minor units, always. |
 | **Auth** (`401`/`403`) | expired token, missing scope, revoked key | Re-authenticate or request the right scope. Revocation is server-side and immediate. |
@@ -42,6 +43,7 @@ Every error response has one shape:
 | **Access rules unavailable** (`503 access_unavailable` / `access_preview_unavailable`) | the shop's storage cannot serve access rules or a preview right now | Retry later. Nothing changed. |
 | **Rate limited** (`429 rate_limited`) | too many requests, sign-in links or verification codes | Retryable. Wait `retryAfter` seconds (also sent as the `Retry-After` header), then retry. A `429` without `retryAfter` came from a payment provider: back off. |
 | **Card / connection mismatch** (`409 instrument_provider_mismatch`) | a saved card is used at a shop or payment connection it was not saved for | Terminal. Cards are saved per shop and per payment connection; the buyer adds a card for this shop. |
+| **Bank challenge unavailable** (`422 sca_unavailable`) | the purchase needs Strong Customer Authentication that Alyte cannot run for it yet | Terminal for this purchase; not a card decline. Nothing was charged. |
 | **Payment pending** (`202`) | the payment provider accepted the payment but confirms it asynchronously | Not a failure and not a success yet. **Do not submit the payment again.** Wait for the settlement webhook or poll the payment. |
 | **Indeterminate payment outcomes** | PSP timeout mid-charge | The charge may have succeeded. Alyte **halts rather than guesses** — it will never retry a possibly-succeeded charge into a double-charge, and neither should you. Re-check the payment's status; your `idempotencyKey` makes a safe re-confirm possible. |
 
