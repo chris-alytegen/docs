@@ -57,8 +57,14 @@ const outcome = await agent.confirm(hold.id,
 
 - **Always pass a stable `idempotencyKey`** per purchase intent. Retries with
   the same key can never double-charge — even across crashes.
-- `outcome.status` is `settled`, or `sca_required` (the buyer must approve a
-  challenge — resume with `agent.resolveSca(continueToken, 'approved')`).
+- `outcome.status` is `settled` when the purchase completes.
+- **No mandate, no purchase.** An agent the buyer has not granted spending
+  authority is refused at confirm with `422 mandate_invalid`. Nothing is
+  charged; the buyer grants the permission, not the agent.
+- **Never answer a bank challenge for the buyer.** `sca_required` is reserved
+  for a challenge the buyer completes with their bank; `agent.resolveSca`
+  passes on the buyer's result, never your own. The server does not issue
+  such a challenge today, and production refuses with `422 sca_unavailable`.
 - HTTP `202` with a pending status means the shop's payment provider has
   accepted the payment and will confirm it shortly. **Do not confirm again**:
   the hold stays reserved, and the purchase completes (or is released) when the
