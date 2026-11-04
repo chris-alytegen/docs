@@ -8,6 +8,17 @@ marked planned or not enabled.
 
 ## November 2026
 
+### Ticket limits per customer
+
+You can now limit how many tickets one customer holds or buys for an event, across every agent and
+queued purchase: `PUT /v1/integration/events/{id}/purchase-limit` with
+`{ maxPerCustomer, maxHeldPerCustomer? }`. The optional `maxHeldPerCustomer` caps the unpaid
+tickets one customer can hold at once. The first limit on an event counts the tickets already sold.
+Agents see `purchaseLimit` in discovery, and a purchase over the limit gets
+`409 purchase_limit_exceeded`, `409 held_limit_exceeded` or `409 purchase_limit_identity_required`;
+nothing is held or charged. A customer is recognised by their Alyte buyer account for now. Live on
+sandbox since revision `alyte-sandbox-00136-h2z`. [Ticket limits per customer →](/guides/purchase-limits)
+
 ### An agent without a mandate is refused, not challenged
 
 A confirm from an agent with no spending authority (no permission from the buyer, no spend
