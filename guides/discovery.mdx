@@ -30,7 +30,8 @@ GET /v1/discovery/merchants/{merchantId}
 ```
 
 Unauthenticated JSON: your events and tiers with prices and live availability
-(`on_sale`, `not_yet_on_sale` with a retry hint, `sold_out`), plus the link
+(`on_sale`, `not_yet_on_sale` with a retry hint, `sold_out`), any
+[ticket limit per customer](/guides/purchase-limits) on an event, plus the link
 where a buyer authorizes an agent.
 
 ### 2 · The product feed (ChatGPT / ACP)

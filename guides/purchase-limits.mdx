@@ -1,0 +1,111 @@
+---
+title: "Ticket limits per customer"
+description: "Cap how many tickets one customer can hold or buy for an event, across every agent and queued purchase."
+---
+
+A per-purchase maximum stops one large order. It does not stop the same customer placing many small
+ones, through one agent or several. A **ticket limit per customer** does: you set it on an event,
+and Alyte counts every ticket that customer holds or buys for that event, whichever agent or route
+they use.
+
+You set it **per event**, because the right number differs: a stadium might allow 6 and an
+intimate gig 2. There is no shop-wide value. One API key with `merchant:write` manages it.
+
+## Set a limit
+
+```bash
+curl -X PUT "https://app.alytegen.com/v1/integration/events/$EVENT_ID/purchase-limit" \
+  -H "Authorization: Bearer $ALYTE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "maxPerCustomer": 4, "maxHeldPerCustomer": 2 }'
+```
+
+```json
+{
+  "purchaseLimit": {
+    "eventId": "evt_…", "merchantId": "mrc_…",
+    "maxPerCustomer": 4, "maxHeldPerCustomer": 2,
+    "revision": 1, "updatedAt": "2026-11-04T10:30:00.000Z"
+  },
+  "readiness": { "identifiers": ["account"], "ticketsCounted": 8, "ticketsNotCounted": 3 }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `maxPerCustomer` | Required, 1 to 1,000. The most tickets one customer can have for the event, held or bought. |
+| `maxHeldPerCustomer` | Optional, at most `maxPerCustomer`. The most **unpaid** tickets one customer can hold at once, so nobody can tie up stock in holds they never pay for. Leave it out for no separate cap. |
+
+`PUT` replaces the whole limit: sending `{ "maxPerCustomer": 4 }` alone removes an earlier
+`maxHeldPerCustomer`. Values must be whole numbers; `"4"`, `4.5`, `null` or an unknown field is
+refused with `400`, and nothing is saved.
+
+| You want to | Call |
+|---|---|
+| Read the limit | `GET /v1/integration/events/{id}/purchase-limit` (`merchant:read`). `purchaseLimit` is `null` when the event has none. |
+| Remove it | `DELETE /v1/integration/events/{id}/purchase-limit`. Returns `{ "cleared": true }`, or `false` if there was none. |
+
+Alyte records every change with the values before and after. The SDK has no methods for this yet;
+call the REST routes.
+
+## Who counts as one customer
+
+Today Alyte recognises a customer by their **Alyte buyer account**: the buyer an agent belongs to.
+Two agents the same buyer created count as one customer. An agent buying for someone other than
+the buyer it belongs to cannot use that buyer's allowance.
+
+On an event with a limit, a purchase Alyte cannot tie to a buyer is refused. An example is an
+organisation's agent with no individual buyer behind it. The limit never lets an unidentified
+purchase through.
+
+Recognising the same person across several accounts, by card, email, your own customer ID or
+address, is planned. Until then, someone with two buyer accounts counts as two customers.
+
+## What counts
+
+- Tickets held but not yet paid for, tickets bought, and tickets whose payment outcome is still
+  being confirmed.
+- A hold that is released or expires gives its tickets back to the customer's allowance.
+- Add-ons such as parking or merchandise do not count, unless the add-on tier is set to count
+  toward the party size.
+
+The check runs in the same step that reserves the stock. Two agents working for one customer at
+the same moment cannot both get in under the limit.
+
+## Sales made before you set the limit
+
+The first time you set a limit on an event, Alyte counts the event's tickets already sold. Each is
+counted against the buyer who bought it, wherever Alyte's records confirm that buyer.
+
+- A customer who already has more than the limit keeps every ticket but cannot buy more. Nothing is
+  cancelled.
+- Changing the limit later does not count again. Removing it and setting it again does.
+- Tickets that were held but unpaid at that moment are not counted.
+
+`readiness` tells you how much of the event the limit covers. `ticketsCounted` is the held and
+sold tickets it counts against a customer. `ticketsNotCounted` is the ones it cannot tie to one,
+for example tickets bought before Alyte could identify the buyer.
+
+## What agents and buyers see
+
+**Discovery.** A limited event carries `purchaseLimit: { maxPerCustomer, maxHeldPerCustomer? }`, in
+the agent's inventory view and in your public shop window, so an agent can plan within it.
+
+**Refusals.** Nothing is held or charged when one of these is returned:
+
+| Code | Meaning | What to do |
+|---|---|---|
+| `409 purchase_limit_exceeded` (`details.limit`) | This purchase would take the customer over the event's limit | Tell the buyer the event's limit. A smaller quantity may still fit. |
+| `409 held_limit_exceeded` (`details.limit`) | The customer already holds as many unpaid tickets for the event as you allow at once | Pay for or release an existing hold, then try again. |
+| `409 purchase_limit_identity_required` | The event has a limit, and this purchase has no buyer Alyte can recognise | Buy through an agent the buyer created for themselves. |
+
+**Queued purchases.** A waiting [watch](/guides/lifecycle) does not use up the allowance. When it
+fires, it goes through the same check. If the limit refuses it, the watch fails and you receive
+[`watch.failed`](/guides/webhooks) with the code as its `reason`, so you can tell the buyer.
+Today that also happens when the refusal comes only from the buyer's own unpaid holds; letting
+such a watch keep waiting is planned.
+
+## Availability
+
+Live on sandbox since revision `alyte-sandbox-00136-h2z`. A deployment where ticket limits are
+not enabled refuses `PUT` with `503 purchase_limits_unavailable` and changes nothing.
