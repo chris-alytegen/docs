@@ -8,6 +8,25 @@ marked planned or not enabled.
 
 ## November 2026
 
+### Adjust stock by a change, not a new total
+
+If you also sell on your own checkout, send each change as an adjustment:
+`POST /v1/integration/tiers/{id}/stock` with `{ requestId, delta }`. Alyte applies it to its own
+count in one step, so tickets agents are holding stay held; writing a new `availableCount` would
+put them back on sale. Resending the same `requestId` is safe. Short stock returns
+`409 stock_insufficient` with the count Alyte has. On a pooled tier the change applies to the
+pool. Live on sandbox since revision `alyte-sandbox-00137-x9w`.
+[Inventory & fulfilment →](/guides/inventory-and-fulfilment#adjust-stock-when-you-sell-elsewhere)
+
+### Ticket limits recognise cards, and count queued purchases
+
+The ticket limit per customer now also recognises a customer by card: two buyer accounts paying
+with the same card count as one. Stripe cards work with no setup; for Adyen, turn on **Include
+alias info** in your Customer Area. Queued purchases now count while they wait (set
+`countWaitingWatches: false` to switch that off), queueing over the limit is refused, and a watch
+held back only by the buyer's own unpaid tickets keeps waiting instead of failing. Live on sandbox
+since revision `alyte-sandbox-00137-x9w`. [Ticket limits per customer →](/guides/purchase-limits)
+
 ### Ticket limits per customer
 
 You can now limit how many tickets one customer holds or buys for an event, across every agent and

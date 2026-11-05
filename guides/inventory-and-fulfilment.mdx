@@ -17,12 +17,59 @@ on: two systems now hold a count, and the contract matters.
 - **Alyte is authoritative within its allocation.** Holds and settlements
   against that allocation are atomic and oversell-proof on Alyte's side; a
   settled Alyte payment is a sold ticket you must honour.
-- **You reconcile the two** by writing availability back (PATCH the tier's
-  `availableCount`) as your own sales consume shared stock.
+- **You reconcile the two** by sending Alyte each change your own sales make,
+  as an [adjustment](#adjust-stock-when-you-sell-elsewhere): "3 fewer", "1 back".
 
-The safe pattern: **allocate conservatively, write back often.** A small
+The safe pattern: **allocate conservatively, adjust promptly.** A small
 dedicated allocation (even 10–20% of stock) eliminates the cross-channel race
-in practice; the write-back loop keeps the allocation honest.
+in practice; sending each change as it happens keeps the allocation honest.
+
+## Adjust stock when you sell elsewhere
+
+When your own checkout sells, refunds or releases tickets, send the change,
+not a new total. Alyte applies it to its own count in one step, so tickets an
+agent is holding at that moment stay held.
+
+```bash
+curl -X POST "https://app.alytegen.com/v1/integration/tiers/$TIER_ID/stock" \
+  -H "Authorization: Bearer $ALYTE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "requestId": "fp-sale-8812", "delta": -3 }'
+```
+
+```json
+{ "tier": { "id": "tier_…", "availableCount": 47, "…": "…" }, "replayed": false }
+```
+
+| Field | Meaning |
+|---|---|
+| `requestId` | Required, 1 to 200 characters, no surrounding spaces. Your ID for this change, unique across your account. Save it before you send. |
+| `delta` | Required whole number, not zero, from -100,000 to 100,000. Negative for tickets you sold, positive for tickets that came back. |
+
+- **Resending is safe.** If you lose the answer, send the same `requestId` and
+  `delta` again. Alyte applies a change once; a resend returns
+  `replayed: true` and the tier's **current** count, which may have moved
+  since.
+- **Never send a new total after creating a tier.** Setting `availableCount`
+  with `PATCH /v1/integration/tiers/{id}` replaces Alyte's count, and puts
+  tickets agents are holding back on sale.
+- **Short stock.** A decrease larger than Alyte's count is refused with
+  `409 stock_insufficient`, and `details.availableCount` says what Alyte has.
+  Nothing changes, and the `requestId` stays free. It means agents hold or
+  bought tickets you also sold: decide whether to take what Alyte has (send
+  `-availableCount` under a new `requestId`, so agents can't buy more) and keep
+  the rest to send when tickets come back.
+- **Reusing a `requestId`** for a different tier or `delta` is refused with
+  `409 stock_adjustment_conflict`.
+- **Shared pools.** On a tier that draws on a [pool](/guides/shared-inventory),
+  the change applies to the pool. An increase that would take the pool's
+  available and held places above its capacity is refused with
+  `409 pool_capacity_exceeded`; raise the capacity with
+  `PATCH /v1/integration/pools/{id}` first.
+- **Queued agents** waiting for the tier are woken by an increase, as by any
+  restock.
+- General-admission tiers only; reserved seating is refused with `400`. It
+  needs an API key with `merchant:write`. The SDK has no method for it yet.
 
 ## Fulfilment: webhooks first, polling as the safety net
 
@@ -71,5 +118,6 @@ proof — a queue button converts better when it says how long the line is.
 That's the cross-channel race (you sold the last seats on your site between
 polls). Don't oversell locally, and don't ignore the Alyte sale — the buyer
 paid. Flag it for manual resolution (refund via your PSP, or reallocate),
-and shrink the window by writing availability back more aggressively. The
-allocation pattern above makes this case rare to impossible.
+and shrink the window by sending each of your own sales as an adjustment as
+soon as it happens. The allocation pattern above makes this case rare to
+impossible.
