@@ -86,8 +86,29 @@ Before a buyer's window opens, discovery reports the tier as not yet on sale wit
 `409 access_waiting` with the same `retryAfter`; nothing was charged, so retrying at that time
 with the same idempotency key is safe. Once general sale opens, rules no longer apply.
 
+The signed-in buyer catalogue uses the authenticated session's buyer ID to look up membership.
+This works for bounded sessions and before the buyer creates an agent. During an open member
+window, an eligible buyer sees `on_sale`, or `sold_out` when no units remain. Revoking membership
+changes the next catalogue response. The response keeps the tier's original general-sale time.
+
+A buyer session does not identify a payment card. Scheme windows still need verified saved-card
+evidence from the agent's purchase path; a request parameter cannot supply that evidence.
+
 ## Changing a tier that has rules
 
-While a scheduled window exists, the tier's general-sale time cannot change
-(`409 access_conflict`). Cancel the windows first. Deleting a tier archives its rules: they
-leave the list, and reading one by ID returns `status: 'archived'` with its history.
+You can resend unchanged sale dates in a tier PATCH, including the same instant written with
+another time-zone offset, or `null` when the date is already unset. Stock and price fields in
+that update are applied normally.
+
+You can move the general-sale opening later or earlier as long as every scheduled window that
+has not ended still closes at or before the new opening. Moving the opening before a window
+closes, or clearing it while a window remains, returns `409 access_conflict`.
+`error.details.ruleIds` lists the blocking rules. Cancel those rules first or choose a compatible
+opening. Sale-end changes still require the end to be at or after the opening.
+
+**A refused PATCH applies none of its fields**, including stock and price sent alongside the
+date. For example, a window that closes at 10:00 allows a general-sale opening of 10:00 or 11:00,
+but an update to 09:30 is refused in full.
+
+Deleting a tier archives its rules: they leave the list, and reading one by ID returns
+`status: 'archived'` with its history.
