@@ -41,7 +41,7 @@ Rules worth knowing before you build on them:
 
 | You want to | Do this |
 |---|---|
-| Restock | `updatePool(poolId, { availableCount })`. It **sets** the remaining places; it is not an increment. Queued agent watches on every tier of the pool are re-evaluated immediately, exactly like a tier restock. |
+| Restock | `updatePool(poolId, { availableCount })`. It **sets** the remaining places; it is not an increment. Queued agent watches on every tier of the pool are re-evaluated immediately, exactly like a tier restock. To add or take off places as your own checkout sells, adjust any tier of the pool instead ([Adjust stock](/guides/inventory-and-fulfilment#adjust-stock-when-you-sell-elsewhere)). |
 | Rename a pool | `updatePool(poolId, { title })`, omitting `availableCount`, so concurrent sales are not overwritten. |
 | Restock one pooled tier | Not possible: a pooled tier refuses `availableCount`. Restock the pool. |
 | Move a tier to another pool, or back to its own counter | `updateTier(tierId, { poolId })`, or `{ poolId: null, availableCount }`. Refused while the tier has a live hold; retry once it is released or expires. |

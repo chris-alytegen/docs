@@ -1,6 +1,6 @@
 ---
 title: "Ticket limits per customer"
-description: "Cap how many tickets one customer can hold or buy for an event, across every agent and queued purchase."
+description: "Cap how many tickets one customer can hold or buy for an event, across every agent, card and queued purchase."
 ---
 
 A per-purchase maximum stops one large order. It does not stop the same customer placing many small
@@ -27,7 +27,7 @@ curl -X PUT "https://app.alytegen.com/v1/integration/events/$EVENT_ID/purchase-l
     "maxPerCustomer": 4, "maxHeldPerCustomer": 2,
     "revision": 1, "updatedAt": "2026-11-04T10:30:00.000Z"
   },
-  "readiness": { "identifiers": ["account"], "ticketsCounted": 8, "ticketsNotCounted": 3 }
+  "readiness": { "identifiers": ["account", "card"], "ticketsCounted": 8, "ticketsNotCounted": 3 }
 }
 ```
 
@@ -35,10 +35,12 @@ curl -X PUT "https://app.alytegen.com/v1/integration/events/$EVENT_ID/purchase-l
 |---|---|
 | `maxPerCustomer` | Required, 1 to 1,000. The most tickets one customer can have for the event, held or bought. |
 | `maxHeldPerCustomer` | Optional, at most `maxPerCustomer`. The most **unpaid** tickets one customer can hold at once, so nobody can tie up stock in holds they never pay for. Leave it out for no separate cap. |
+| `countWaitingWatches` | Optional, `true` or `false`. Whether [queued purchases](#queued-purchases) count toward the limit while they wait. Leave it out to leave it unset, which counts; `GET` then returns `null`. |
 
 `PUT` replaces the whole limit: sending `{ "maxPerCustomer": 4 }` alone removes an earlier
-`maxHeldPerCustomer`. Values must be whole numbers; `"4"`, `4.5`, `null` or an unknown field is
-refused with `400`, and nothing is saved.
+`maxHeldPerCustomer`. Values must be whole numbers and `countWaitingWatches` must be `true` or
+`false`; `"4"`, `4.5`, `null`, `"false"` or an unknown field is refused with `400`, and nothing is
+saved.
 
 | You want to | Call |
 |---|---|
@@ -50,16 +52,47 @@ call the REST routes.
 
 ## Who counts as one customer
 
-Today Alyte recognises a customer by their **Alyte buyer account**: the buyer an agent belongs to.
-Two agents the same buyer created count as one customer. An agent buying for someone other than
-the buyer it belongs to cannot use that buyer's allowance.
+Alyte recognises a customer by two things. Two purchases that share either one count as the same
+customer.
+
+- **The Alyte buyer account**: the buyer an agent belongs to. Two agents the same buyer created
+  count as one customer. An agent buying for someone other than the buyer it belongs to cannot use
+  that buyer's allowance.
+- **The card**: recorded when the buyer saves it. Two buyer accounts paying with the same card count
+  as one customer. Alyte keeps a keyed hash of the card's identifier, never the identifier itself,
+  and never shows it to you or the agent.
+  - **Stripe**: the card's fingerprint, with no setup on your side.
+  - **Adyen**: the card alias, which Adyen returns only if your account is set to send it. See
+    [Adyen: send the card alias](#adyen-send-the-card-alias).
+
+Some cards have no identity on record, and then only the account counts: cards saved before
+5 November 2026, cards Adyen returned no alias for, and delegated payment tokens. Saving the card
+again fixes the first two.
 
 On an event with a limit, a purchase Alyte cannot tie to a buyer is refused. An example is an
 organisation's agent with no individual buyer behind it. The limit never lets an unidentified
 purchase through.
 
-Recognising the same person across several accounts, by card, email, your own customer ID or
-address, is planned. Until then, someone with two buyer accounts counts as two customers.
+Recognising the same person by email, your own customer ID or address is planned. Until then,
+someone with two buyer accounts and a different card on each counts as two customers.
+
+### Adyen: send the card alias
+
+<Steps>
+  <Step title="Turn on alias info">
+    In your Adyen Customer Area, go to **Developers → Additional data**, and under **Payment**
+    select **Include alias info**. Save.
+  </Step>
+  <Step title="Save a card to check">
+    Save a test card through Alyte's card setup. Cards saved from now on carry the alias; cards
+    saved earlier do not, and their buyers need to save them again to be recognised by card.
+  </Step>
+</Steps>
+
+<Note>
+Some Adyen accounts cannot change this setting themselves. If you do not see **Include alias
+info**, ask your Adyen contact to enable it.
+</Note>
 
 ## What counts
 
@@ -72,10 +105,21 @@ address, is planned. Until then, someone with two buyer accounts counts as two c
 The check runs in the same step that reserves the stock. Two agents working for one customer at
 the same moment cannot both get in under the limit.
 
+**The card is checked at payment.** Which card pays is certain only when the purchase is confirmed,
+so the card's allowance is claimed then, before anything is sent to your payment provider, for a
+single hold and for every line of a basket.
+
+- Over the limit: `409 purchase_limit_exceeded`, and the hold is released. No payment is started.
+- A declined payment gives the card's tickets back. A payment whose outcome is uncertain keeps them
+  counted until it is confirmed.
+- The cap on unpaid tickets (`maxHeldPerCustomer`) does not apply to the card, because these
+  tickets are being paid for.
+
 ## Sales made before you set the limit
 
 The first time you set a limit on an event, Alyte counts the event's tickets already sold. Each is
-counted against the buyer who bought it, wherever Alyte's records confirm that buyer.
+counted against the buyer who bought it, wherever Alyte's records confirm that buyer, and against
+the card it was paid with, wherever that card has an identity on record.
 
 - A customer who already has more than the limit keeps every ticket but cannot buy more. Nothing is
   cancelled.
@@ -99,13 +143,28 @@ the agent's inventory view and in your public shop window, so an agent can plan 
 | `409 held_limit_exceeded` (`details.limit`) | The customer already holds as many unpaid tickets for the event as you allow at once | Pay for or release an existing hold, then try again. |
 | `409 purchase_limit_identity_required` | The event has a limit, and this purchase has no buyer Alyte can recognise | Buy through an agent the buyer created for themselves. |
 
-**Queued purchases.** A waiting [watch](/guides/lifecycle) does not use up the allowance. When it
-fires, it goes through the same check. If the limit refuses it, the watch fails and you receive
-[`watch.failed`](/guides/webhooks) with the code as its `reason`, so you can tell the buyer.
-Today that also happens when the refusal comes only from the buyer's own unpaid holds; letting
-such a watch keep waiting is planned.
+## Queued purchases
+
+A waiting [watch](/guides/lifecycle) counts toward the limit, unless you set
+`countWaitingWatches: false`. Its tickets are counted under the buyer's account, and the card it
+will pay with, from the moment it is queued.
+
+- **Queueing over the limit is refused** with `409 purchase_limit_exceeded`, and no watch is created.
+  Retrying a queue request with the same `requestId` never counts twice.
+- **When the watch fires**, its hold takes over the counted tickets, so nothing counts twice. A
+  watch that is cancelled, expires, fails or buys gives its tickets back at once.
+- **A watch held back only by the buyer's own unpaid tickets keeps waiting**, with
+  `waitingReason: "purchase_limit"` and no place in the line, and tries again when those tickets are
+  paid for or released. Any other limit refusal fails the watch: you receive
+  [`watch.failed`](/guides/webhooks) with the code as its `reason`, so you can tell the buyer.
+- **Switching counting off** releases the event's waiting tickets at once.
+- **Watches queued before** you set the limit, or switched counting on, are counted within about
+  five minutes, even past the limit. Each is checked again when it fires.
+
+Leave counting on unless you want a buyer to be able to queue for more than they could buy.
 
 ## Availability
 
-Live on sandbox since revision `alyte-sandbox-00136-h2z`. A deployment where ticket limits are
-not enabled refuses `PUT` with `503 purchase_limits_unavailable` and changes nothing.
+Live on sandbox since revision `alyte-sandbox-00136-h2z`; recognising cards and counting queued
+purchases since `alyte-sandbox-00137-x9w`. A deployment where ticket limits are not enabled refuses
+`PUT` with `503 purchase_limits_unavailable` and changes nothing.
