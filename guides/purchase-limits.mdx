@@ -47,8 +47,9 @@ saved.
 | Read the limit | `GET /v1/integration/events/{id}/purchase-limit` (`merchant:read`). `purchaseLimit` is `null` when the event has none. |
 | Remove it | `DELETE /v1/integration/events/{id}/purchase-limit`. Returns `{ "cleared": true }`, or `false` if there was none. |
 
-Alyte records every change with the values before and after. The SDK has no methods for this yet;
-call the REST routes.
+Alyte records every change with the values before and after. `@alytegen/sdk` **0.8.0** adds
+`setEventPurchaseLimit`, `getEventPurchaseLimit` and `clearEventPurchaseLimit` on `AlyteMerchant`;
+earlier versions call the REST routes.
 
 ## Who counts as one customer
 

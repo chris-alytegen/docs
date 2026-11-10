@@ -45,6 +45,7 @@ Rules worth knowing before you build on them:
 | Rename a pool | `updatePool(poolId, { title })`, omitting `availableCount`, so concurrent sales are not overwritten. |
 | Restock one pooled tier | Not possible: a pooled tier refuses `availableCount`. Restock the pool. |
 | Move a tier to another pool, or back to its own counter | `updateTier(tierId, { poolId })`, or `{ poolId: null, availableCount }`. Refused while the tier has a live hold; retry once it is released or expires. |
+| Retry a create safely | Pass `externalRef` (your own id, 1–200 characters, unique per shop) to `createPool`: a resend returns the existing pool with `existing: true` instead of creating a second one, and a resend that names another shop or event is refused with `409 external_ref_conflict`. `createEvent` and `createTier` take the same field. SDK **0.8.0** |
 | Share across events | Create the pool without `eventId` (shop-wide). An event-scoped pool only serves tiers of that event, and a pool only ever serves tiers of its own shop. |
 
 Seated tiers keep their own seats and cannot draw on a pool.

@@ -8,6 +8,23 @@ marked planned or not enabled.
 
 ## November 2026
 
+### SDK 0.8.0: ticket limits, baskets, queue place and bank-challenge continuation
+
+`@alytegen/sdk` 0.8.0 is on npm. `AlyteMerchant` gains `setEventPurchaseLimit`,
+`getEventPurchaseLimit` and `clearEventPurchaseLimit` for the
+[ticket limit per customer](/guides/purchase-limits), and `createPool({ externalRef })` so a
+retried pool create returns the pool you already made (`existing: true`) instead of a second one;
+`POST /v1/integration/events` and `/tiers` accept the same `externalRef`. `AlyteAgent` gains the
+basket methods `reserveBasket`, `getReservation`, `quoteReservation`, `confirmReservation`,
+`releaseReservation` and `resolveBasketSca` over `/v1/reservations/*`: several ticket types held
+all or nothing and paid with one charge; the SDK returns the documented `402` basket outcomes as
+values rather than throwing. The browser entry (`@alytegen/sdk/browser`) adds `watchCapabilities`,
+`createWatch`, `getWatch` and `observeWatch` (a buyer's place in line and price-target watches),
+and `openChallenge`, `purchase`, `resumePurchase` and `cancelPurchase` for shops that will ask the
+buyer to authenticate the agent's purchase itself; that server-side setting is not enabled on
+sandbox yet, so those calls are typed but inert today. Live on sandbox since revision
+`alyte-sandbox-00145-gj5`.
+
 ### Adjust stock by a change, not a new total
 
 If you also sell on your own checkout, send each change as an adjustment:
