@@ -32,7 +32,9 @@ stateDiagram-v2
 ```
 
 `status` is exactly one of: `queued` · `firing` · `fired` · `failed` ·
-`cancelled` · `expired`.
+`cancelled` · `expired`, plus two that only shops with extra buyer steps produce: `paused`
+(the buyer needs to return to Alyte's page before it can continue) and `awaiting_sca` (waiting
+for the buyer's bank approval).
 
 **What fires a watch**: the tier becoming buyable.
 
@@ -56,6 +58,57 @@ it, and the watch leaves the queue. Only genuinely transient errors return a
 watch to `queued`. This is why a failed watch "disappears": it is finished. You
 receive [`watch.failed`](/guides/webhooks) with the reason so you can tell the
 buyer.
+
+## Listing one buyer's queued purchases
+
+To show a signed-in buyer their waiting agents on your own pages, list them from your server.
+No buyer session is needed:
+
+```http
+GET /v1/integration/watches?buyerRef=byr_4f0c9a1e2b3d5f67&status=active
+Authorization: Bearer <API token with merchant:read>
+```
+
+| Parameter | |
+|---|---|
+| `buyerRef` | Required. The buyer id (`byr_` + 16 hex) you received when you [minted their session](/guides/buyer-sessions). |
+| `status` | `active` (default): `queued`, `paused`, `firing`, `awaiting_sca`. `all` adds `fired`, `failed`, `cancelled`, `expired`. |
+| `merchantId` | Optional: only this shop. It must be one of yours, otherwise `404`. |
+| `limit` | 1–100, default 50. |
+| `cursor` | The previous page's `nextCursor`, unchanged. |
+
+```json
+{
+  "watches": [
+    {
+      "id": "wch_7d1e2c3b4a5",
+      "status": "queued",
+      "merchantId": "mrc_8c2f1a3b-4",
+      "tierId": "tier_be89c814-6",
+      "tierTitle": "Weekend plus",
+      "eventTitle": "Harbour Nights",
+      "quantity": 2,
+      "agentId": "agt_d4b0f979-6",
+      "createdAt": "2026-11-17T10:20:09.494Z",
+      "expiresAt": "2026-12-17T10:20:09.460Z",
+      "waitingReason": "access_window",
+      "nextEligibleAt": "2026-12-01T00:00:00.000Z"
+    }
+  ],
+  "nextCursor": "eyJ0Ijoi…"
+}
+```
+
+Newest first. `tierId` is the same tier id `GET /v1/integration/catalog` gives you;
+`tierTitle` and `eventTitle` are absent if the tier has since been removed. `waitingReason` and
+`nextEligibleAt` appear while a purchase waits for an opening. Suggested wording for buyers:
+`firing` = "processing", `awaiting_sca` = "needs approval", `paused` = "needs you", `queued` =
+"on watch".
+
+Only your account is searched. A buyer id is the same for that person at every merchant on Alyte,
+so the same buyer's purchases at another merchant never appear here. The list is read only:
+cancelling stays with the buyer on Alyte's page. SDK: `AlyteMerchant.buyerWatches(buyerRef, {
+status, merchantId, limit, cursor })` (next SDK release).
 
 ## Payment lifecycle
 
