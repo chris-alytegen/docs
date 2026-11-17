@@ -99,7 +99,7 @@ Authorization: Bearer <API token with merchant:read>
 }
 ```
 
-Newest first. `tierId` is the same id the [catalogue](/guides/inventory-and-fulfilment) gives you;
+Newest first. `tierId` is the same tier id `GET /v1/integration/catalog` gives you;
 `tierTitle` and `eventTitle` are absent if the tier has since been removed. `waitingReason` and
 `nextEligibleAt` appear while a purchase waits for an opening. Suggested wording for buyers:
 `firing` = "processing", `awaiting_sca` = "needs approval", `paused` = "needs you", `queued` =
