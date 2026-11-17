@@ -8,6 +8,14 @@ marked planned or not enabled.
 
 ## November 2026
 
+### List one buyer's queued purchases from your server
+
+`GET /v1/integration/watches?buyerRef=…` returns one buyer's queued purchases at your shops,
+newest first: what is waiting, being bought, needs approval or needs the buyer. That lets you show
+a signed-in buyer their waiting agents without minting a buyer session on every page load. Your
+account only, read only, paged with `nextCursor`. See
+[Listing one buyer's queued purchases](/guides/lifecycle#listing-one-buyers-queued-purchases).
+
 ### SDK 0.8.0: ticket limits, baskets, queue place and bank-challenge continuation
 
 `@alytegen/sdk` 0.8.0 is on npm. `AlyteMerchant` gains `setEventPurchaseLimit`,
