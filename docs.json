@@ -58,6 +58,7 @@
             "group": "For agent developers",
             "pages": [
               "guides/agent-buy",
+              "guides/baskets-and-seat-requests",
               "guides/discovery",
               "guides/signed-requests"
             ]
