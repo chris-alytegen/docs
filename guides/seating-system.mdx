@@ -1,0 +1,304 @@
+---
+title: "Connect your seating system"
+description: "The endpoints your seating system serves so Alyte can sell reserved seats: allocate, release, venue chart and offers"
+---
+
+For reserved seating, your seating system picks the seats and Alyte never does. You serve up to
+four endpoints; Alyte calls them during a purchase. Two are required (allocate, release) and two
+are optional (chart, offers) and unlock [seat requests and seat offers](/guides/baskets-and-seat-requests).
+
+| Endpoint | Required | Alyte calls it |
+| --- | --- | --- |
+| Allocate | yes | when a buyer or agent reserves seated tickets |
+| Release | yes | when a reservation ends without a sale |
+| Chart | for seat requests | to learn the venue's sections, rows and seat traits |
+| Offers | for seat offers | to ask for several seat options, held briefly |
+
+## Register the endpoints
+
+<Note>
+`merchant.seatingProvider` needs `@alytegen/sdk` 0.9.0 or later. On 0.8.0, call
+`PUT /v1/integration/merchants/{merchantId}/seating-provider` and
+`POST /v1/integration/merchants/{merchantId}/seating-provider/test` directly.
+</Note>
+
+```ts
+const { seatingProvider, signingSecret } = await merchant.seatingProvider.put(merchantId, {
+  allocateUrl: 'https://shop.example/alyte/allocate',
+  releaseUrl: 'https://shop.example/alyte/release',
+  chartUrl: 'https://shop.example/alyte/chart',
+  offersUrl: 'https://shop.example/alyte/offers',
+  partialAllocate: true,
+});
+await merchant.seatingProvider.test(merchantId);
+```
+
+- URLs must be `https` and carry no credentials.
+- `signingSecret` (`seat_…`) is returned once, on the first call or with `rotateSecret: true`.
+  Store it; a later call does not return it again.
+- The connection is `pending` until `test` succeeds. `test` sends the signed body
+  `{"type":"ping"}` to every URL you set and verifies the connection only when all answer `2xx`.
+  Each endpoint should answer `200` to a ping and `400` to any other body it does not understand.
+- Changing a URL, rotating the secret or turning on `partialAllocate` makes the connection
+  `pending` again until the next test. While it is pending, seated tickets are refused with
+  `409 seating_unavailable`.
+- Set `partialAllocate: true` only if your system can return a basket with a line reduced or
+  dropped (see [Partial answers](#partial-answers)).
+
+Then mark each seated ticket type with `allocation: 'provider'`.
+
+## Check the signature
+
+Every call is a `POST` with a JSON body, signed exactly like a [webhook](/guides/webhooks#verify-the-signature):
+
+```
+alyte-signature: t=<unix-seconds>,v1=hex( hmac_sha256( secret, "<t>.<raw body>" ) )
+```
+
+Verify it over the raw body with the seating secret. The SDK's `verifyWebhookSignature` works
+unchanged. Alyte waits 3 seconds for each answer and does not follow redirects.
+
+## Allocate
+
+Sent while the buyer's reservation is being made, after Alyte's own checks.
+
+```json
+{
+  "allocationId": "res_8f2c…",
+  "merchantId": "mrc_…",
+  "eventId": "evt_…",
+  "eventRef": "your-event-ref",
+  "lines": [
+    { "lineNo": 1, "tierId": "tier_…", "tierRef": "stalls-adult", "quantity": 2,
+      "request": { "sections": ["stalls"], "rows": { "stalls": { "from": "C", "to": "H" } },
+                   "traits": { "exclude": ["restricted_view"] } } },
+    { "lineNo": 2, "tierId": "tier_…", "tierRef": "stalls-child", "quantity": 1, "groupWith": 1 }
+  ],
+  "together": true,
+  "allowSplit": false,
+  "holdUntil": "2026-12-01T19:04:10.000Z"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `allocationId` | Alyte's reservation id. Use it as your idempotency key: the same id must return the same seats. |
+| `eventRef`, `tierRef` | Your own references, when you set them on the event and ticket type. |
+| `lines[].seats` | Exact seat ids the buyer picked on your page, passed through untouched. You remain the authority on whether they are free. |
+| `lines[].request` | The buyer's hard limits for that line: `sections`, `rows` (per section: `from`, `to`, `exclude`), `traits` (`require`, `exclude`) and `blockSize`. Only sent when the buyer set any. |
+| `lines[].groupWith` | The `lineNo` this line must stay with (a companion with a wheelchair space, a child with an adult). Alyte derives it from the chart's `groups`. |
+| `lines[].minQuantity`, `required`, `step` | Only sent when your connection has `partialAllocate: true`. |
+| `together` | Seat every line of the request together. |
+| `allowSplit` | `true` only when the buyer accepted separate blocks. With `blockSize`, each block must be exactly that many adjacent seats. |
+| `holdUntil` | When Alyte's reservation is due to expire. Informational: see [When to free seats](#when-to-free-seats). |
+| `offerId` | Present when the buyer chose one of your [offers](#offers); allocate exactly that offer's seats. |
+
+### Answers
+
+**Seats found** is `200`:
+
+```json
+{
+  "allocationId": "res_8f2c…",
+  "adjacency": "together",
+  "chartVersion": "2026-11-20",
+  "lines": [
+    { "lineNo": 1, "seats": [
+      { "seatId": "ST-C-12", "section": "stalls", "row": "C", "number": "12", "label": "Stalls C12", "traits": ["aisle"] },
+      { "seatId": "ST-C-13", "section": "stalls", "row": "C", "number": "13", "label": "Stalls C13" } ] },
+    { "lineNo": 2, "seats": [ { "seatId": "ST-C-14", "section": "stalls", "row": "C", "number": "14" } ] }
+  ]
+}
+```
+
+Alyte accepts it only when the `allocationId` matches, every requested line is present, each line
+has the right number of seats, no seat id repeats, and `adjacency` is `together` (or `split` when
+`allowSplit` was `true`). It then checks every returned seat against the buyer's limits itself.
+Section, row, number, label and traits are shown to the buyer as you send them.
+
+**No seats** is `409` with a `code`. The buyer is refused with `409 seating_<code>` and nothing is
+charged:
+
+| `code` | Use it when |
+| --- | --- |
+| `sold_out` | nothing is left for that ticket type |
+| `no_adjacent_seats` | seats remain but not together |
+| `no_matching_seats` | seats remain but none inside the buyer's limits |
+| `seats_unavailable` | the exact seats asked for are taken |
+| `too_many_seats` | the request is over your own per-order rule |
+| `not_on_sale` | the event or ticket type is not on sale |
+| `offer_expired`, `offer_unknown`, `offer_mismatch` | the `offerId` has lapsed, is not yours, or does not match the lines |
+
+Add `"lineNo"` next to `code` when one line caused the refusal.
+
+**Anything else** is handled as follows. In every case Alyte gives its own stock back, sends a
+release and does not charge.
+
+| Your answer | Alyte treats it as | The buyer sees |
+| --- | --- | --- |
+| Another `4xx` | you rejected the request | `502 seating_provider_rejected`, not retried |
+| Timeout, network error, `5xx` | unknown | `503 seating_unavailable`, may retry |
+| `202` or any `2xx` other than `200` | unknown | `503 seating_unavailable` |
+| A `200` that fails the checks above | unknown | `503 seating_unavailable` |
+
+A `400` also makes Alyte fetch your chart again before its next request.
+
+### Partial answers
+
+With `partialAllocate: true`, a line may carry `minQuantity`, `required: false` and `step`, and
+you may answer with fewer seats. Give each line a `status`:
+
+```json
+{ "lineNo": 1, "status": "reduced", "quantity": 2, "seats": [ … ], "reason": "sold_out" }
+{ "lineNo": 2, "status": "dropped", "quantity": 0, "seats": [] }
+```
+
+- `filled` (the default) has exactly the requested quantity.
+- `reduced` has fewer seats than requested, at least `minQuantity`, and a multiple of `step`.
+- `dropped` has no seats and is only allowed on a line sent with `required: false`.
+- A line with `groupWith` cannot keep seats when its lead line is dropped.
+
+An answer outside these rules is treated as unknown. Without `partialAllocate`, Alyte refuses a
+seated line that asks for a smaller quantity before it reaches you.
+
+## Release
+
+```json
+{ "allocationId": "res_8f2c…", "reason": "released" }
+```
+
+`reason` is `expired` when the reservation ran out, otherwise `released`. Free every seat of the
+allocation and answer `200`, including for an id you do not know and for a repeat. Alyte sends one
+release per allocation and retries until it gets a `2xx` (30 seconds, then doubling up to an hour,
+ten attempts). A release is never sent for an allocation with a sold seat.
+
+A sale needs no extra call: `payment.settled` and `GET /v1/integration/payments` carry the
+`allocationId` and each line's seats.
+
+## When to free seats
+
+Never free an allocation on your own clock. A payment in progress extends Alyte's hold past the
+`holdUntil` you were given, and freeing those seats would sell them twice. Free an allocation only
+when:
+
+- a release arrives, or
+- `GET /v1/integration/allocations/:allocationId` answers `state: "released"`, or `404` with the
+  code `allocation_not_found`.
+
+That read returns `state` (`held`, `paying`, `sold` or `released`), `holdUntil` and the seats per
+line. Use it to sweep allocations you have heard nothing about. Act on a `404` only when it
+carries `allocation_not_found`; treat any other error as "keep holding".
+
+## Chart
+
+Needed for seat requests. Alyte uses it to check a buyer's limits before asking you for seats,
+and to show sections and traits to buyers.
+
+Request:
+
+```json
+{ "eventId": "evt_…", "eventRef": "your-event-ref" }
+```
+
+Answer `200`:
+
+```json
+{
+  "version": "2026-11-20",
+  "sections": [ { "id": "stalls", "label": "Stalls", "rows": ["A", "B", "C", "D"] } ],
+  "tiers": [
+    { "tierRef": "stalls-adult", "sections": ["stalls"] },
+    { "tierRef": "stalls-wheelchair", "kind": "wheelchair", "sections": ["stalls"], "rows": { "stalls": ["A"] } },
+    { "tierRef": "stalls-companion", "kind": "companion", "sections": ["stalls"] }
+  ],
+  "traits": [ { "name": "aisle", "label": "Aisle seat", "labels": { "de": "Gangplatz" } } ],
+  "groups": [ { "lead": "stalls-wheelchair", "member": "stalls-companion", "perLead": 1 } ]
+}
+```
+
+| Field | Rules |
+| --- | --- |
+| `version` | Required. Change it whenever the chart changes. |
+| `sections[].rows` | Row names **in order, front to back**. A buyer's "rows C to H" is read against this order. |
+| `tiers[]` | One entry per ticket type, named by `tierRef` or `tierId`. `sections` lists where it sits; `rows` narrows it per section. `kind` is `seats`, `wheelchair` or `companion`. |
+| `traits[]` | Every trait name your seats can carry. A buyer can only require or exclude a listed trait. |
+| `groups[]` | Lines that must stay together: `member` seats are only sold with `lead` seats, at most `perLead` each. `lead` may be a list. |
+
+Limits: 200 sections, 500 rows per section, 200 tiers, 100 traits, 100 groups. A chart that
+breaks a rule is ignored as a whole, and seat requests for that event are refused.
+
+Alyte keeps the chart until you tell it otherwise. Send `chartVersion` on allocate and offers
+answers; when it differs from the version Alyte holds, Alyte fetches the chart again.
+
+## Offers
+
+Needed for seat offers and for requests that span several zones. Alyte asks for several options,
+you hold all of them briefly, and the buyer or their agent picks one.
+
+Request:
+
+```json
+{
+  "allocationId": "res_8f2c…",
+  "merchantId": "mrc_…",
+  "eventId": "evt_…",
+  "eventRef": "your-event-ref",
+  "lines": [
+    { "lineNo": 1, "quantity": 2,
+      "tiers": [ { "tierId": "tier_…", "tierRef": "stalls-adult" }, { "tierId": "tier_…", "tierRef": "circle-adult" } ] }
+  ],
+  "request": { "traits": { "exclude": ["restricted_view"] } },
+  "together": true,
+  "allowSplit": false,
+  "maxOffers": 5,
+  "maxHoldMs": 60000
+}
+```
+
+A line lists every ticket type (zone) the buyer accepts in `tiers`. Lines may also carry
+`minQuantity`, `required`, `step` and `groupWith`, as on allocate. No buyer identifier is sent.
+
+Answer `200`:
+
+```json
+{
+  "holdMs": 45000,
+  "chartVersion": "2026-11-20",
+  "offers": [
+    { "offerId": "of_1", "adjacency": "together",
+      "lines": [ { "lineNo": 1, "tierId": "tier_…", "seats": [ { "seatId": "ST-C-12" }, { "seatId": "ST-C-13" } ] } ] },
+    { "offerId": "of_2", "adjacency": "together",
+      "lines": [ { "lineNo": 1, "tierId": "tier_…", "seats": [ { "seatId": "CI-A-4" }, { "seatId": "CI-A-5" } ] } ] }
+  ]
+}
+```
+
+- Return at most `maxOffers` offers (never more than 5), each with a unique `offerId`.
+- Every offer answers every line. Name the `tierId` an offer line uses when the line allowed
+  several; it must be one of the line's `tiers`.
+- A seat id may appear in several offers, but only once inside one offer.
+- `holdMs` is how long you hold the offered seats, **counted from your answer**, at most
+  `maxHoldMs` (never more than 60 seconds). A duration is used, not a timestamp, so clock
+  differences do not matter. Alyte stops accepting a choice 5 seconds early.
+- Free the seats of unchosen offers yourself when `holdMs` runs out. This is the one case where
+  your own clock decides, because offered seats are not yet an allocation.
+- Set `"offersLimited": true` when you returned fewer options than you could have.
+- No seats inside the limits: answer `200` with `"offers": []` and a numeric `holdMs`. The buyer
+  gets `409 seating_no_matching_seats`.
+- Refusals are `409` with `sold_out`, `not_on_sale` or `too_many_seats`.
+- The same `allocationId` asked again must return the same offer set while it is held.
+- Alyte retries a timeout, a `5xx` or a malformed answer once, then gives up with
+  `503 seating_unavailable`.
+
+When the buyer chooses, Alyte sends an ordinary [allocate](#allocate) with the same
+`allocationId`, the chosen `offerId` and that offer's lines. Answer `200` with exactly the offered
+seats: Alyte compares them seat for seat. From that moment the seats are an allocation and the
+rule in [When to free seats](#when-to-free-seats) applies.
+
+## Try it
+
+1. Register the endpoints against a test shop and run `test`.
+2. Reserve a seated ticket type and check your allocate log for the signed request.
+3. Let the reservation expire and confirm the release arrives.
+4. Answer one allocate with a `500` and confirm the buyer is refused without a charge and a
+   release follows.

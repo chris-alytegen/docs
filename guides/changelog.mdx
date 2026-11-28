@@ -8,6 +8,16 @@ marked planned or not enabled.
 
 ## November 2026
 
+### Baskets that may shrink, seat requests and seat offers
+
+A basket line can now say how far it may shrink (`minQuantity`, `required: false`, `step`), and
+Alyte reserves the largest basket that fits the stock, the shop's rules and the buyer's permission,
+reporting each line in `lineOutcomes`. Seated lines take a `seatRequest` (sections, rows, traits,
+pairs) in place of exact seats, and an agent can ask the shop's seating system for up to five held
+offers and select one. Queued purchases take basket `lines`, and a buyer session can open on one
+event with a basket filled in. The REST API has all of it today. The SDK calls arrive in
+`@alytegen/sdk` 0.9.0, including `AlyteMerchant.seatingProvider`; 0.8.0 does not have them. See [Baskets and seat requests](/guides/baskets-and-seat-requests) and, for the endpoints your seating system serves, [Connect your seating system](/guides/seating-system).
+
 ### List one buyer's queued purchases from your server
 
 `GET /v1/integration/watches?buyerRef=…` returns one buyer's queued purchases at your shops,

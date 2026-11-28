@@ -1,0 +1,260 @@
+---
+title: "Baskets and seat requests"
+description: "Buy several ticket types in one payment, let a basket shrink within limits the buyer set, and ask for seats by section, row and trait."
+---
+
+A basket is 1 to 20 lines from one shop, in one currency, reserved together and paid with one
+charge. By default it is all or nothing: if one line does not fit, nothing is reserved.
+
+This guide covers three additions:
+
+- **Baskets that may shrink**, within limits the buyer set per line.
+- **Seat requests**: which sections, rows and seat traits are acceptable, and which are preferred.
+- **Seat offers**: the shop's seating system holds a few concrete sets of seats, and the agent picks one.
+
+Everything here is enforced by Alyte on the server. An agent can ask for less than the buyer
+allowed, never for more.
+
+<Note>
+The SDK calls on this page need `@alytegen/sdk` 0.9.0 or later. On 0.8.0, send the same fields to
+the REST API.
+</Note>
+
+## Baskets that may shrink
+
+Each line takes three optional fields:
+
+| Field | Meaning | Default |
+|---|---|---|
+| `minQuantity` | The fewest units worth having on this line. | `quantity` (no reduction) |
+| `required` | `false` lets the whole line be left out. | `true` |
+| `step` | The kept quantity must be a multiple of this, e.g. `2` for pairs. | `1` |
+
+```ts
+const reservation = await agent.reserveBasket({
+  lines: [
+    { tierId: adultTierId, quantity: 4, minQuantity: 2, step: 2 },
+    { tierId: parkingTierId, quantity: 1, required: false },
+  ],
+});
+```
+
+Alyte reserves the largest basket that fits, deciding line by line in the order you sent them. A
+basket fits when it respects all of:
+
+- the stock, including stock shared between ticket types;
+- the shop's link rules (an add-on never survives without the ticket it belongs to);
+- the buyer's permission: the spend cap, the quantity rule (minimum, maximum, step) and the
+  add-on rules;
+- the event's [ticket limit per customer](/guides/purchase-limits).
+
+These limits shape the result. A basket that can be made to fit by reducing a line within its
+`minQuantity` is reduced, not refused.
+
+### Reading the result
+
+`reservation.lines` holds only what was reserved. `reservation.lineOutcomes` lists every line you
+asked for:
+
+```json
+{
+  "lineOutcomes": [
+    { "tierId": "tier_adult", "requestedQuantity": 4, "minQuantity": 2, "required": true,
+      "quantity": 2, "status": "reduced", "reason": "sold_out" },
+    { "tierId": "tier_parking", "requestedQuantity": 1, "minQuantity": 1, "required": false,
+      "quantity": 0, "status": "dropped", "reason": "spend_cap" }
+  ]
+}
+```
+
+`status` is `filled`, `reduced` or `dropped`. `reason` says why, for example `sold_out`,
+`shared_capacity`, `link_rule`, `step`, `spend_cap`, `purchase_limit` or `no_matching_seats`. Treat
+a reason you do not recognise as a generic one: new values can appear.
+
+Show the buyer what they are getting before you confirm. The quote and the charge cover the
+reserved lines only.
+
+If no acceptable basket exists (a required line cannot reach its minimum), the reserve is refused
+with `409 basket_unfulfillable` and nothing is held.
+
+### Retrying a buyer purchase
+
+On the buyer routes (`buyBasket` in `@alytegen/sdk/browser`), the saved `attemptId` identifies the
+purchase and its result. A retry with the same `attemptId` buys **the same resolved basket**: the
+same lines and quantities the first try settled on. It is never resized.
+
+If that exact basket can no longer be reserved, the retry is refused with
+`409 basket_result_unavailable`. That is final for this `attemptId`. Tell the buyer, and start a
+new purchase only if they ask for one.
+
+Reusing an `attemptId` with different lines is refused with `409 purchase_key_mismatch`.
+
+## Seat requests
+
+On a seated ticket type, a line may say which seats are acceptable instead of naming exact seats.
+The shop must have a verified venue chart; otherwise the line is refused with `400`.
+
+```ts
+const line = {
+  tierId: stallsTierId,
+  quantity: 4,
+  seatRequest: {
+    limits: {
+      sections: ['A', 'B'],
+      rows: { A: { from: '1', to: '10', exclude: ['7'] } },
+      traits: { require: ['aisle'], exclude: ['restricted_view'] },
+      together: true,
+      allowSplit: true,
+      blockSize: 2,
+    },
+    preferences: { rowPosition: 'front', traits: { prefer: ['centre'] }, tradeoff: 'better_seats' },
+  },
+};
+```
+
+**Limits are enforced.** Seats outside them are never bought.
+
+| Limit | Meaning |
+|---|---|
+| `sections` | Only these sections of the venue. |
+| `zones` | Other ticket types (price zones) of the same event the buyer also accepts, as tier ids. Must include the line's own `tierId`, and works only through [seat offers](#seat-offers). |
+| `rows` | Per section: a range (`from`, `to`) and rows to `exclude`. |
+| `traits.require` / `traits.exclude` | Every seat must have, or must not have, these traits. |
+| `together` | The party sits in adjacent seats. |
+| `allowSplit` | Whether the party may be split when adjacent seats run out. |
+| `blockSize` | Seats come in adjacent blocks of this size, 2 to 20. `2` means pairs only: nobody sits alone. Needs `allowSplit: true` (the party may be split, but only into whole blocks), and the line's quantity must be a multiple of it. |
+
+**Preferences only rank.** `zoneOrder`, `rowPosition` (`front`, `middle`, `back`), `traits.prefer`
+/ `traits.avoid` and `tradeoff` (`cheaper`, `better_seats`, `balanced`) choose between seats the
+limits already allow. A preference never widens a limit.
+
+Section, row and trait names come from the shop's chart. A name the chart does not have is refused
+with `400`, so a typo cannot silently drop a limit.
+
+`seats` (exact seat ids) and `seatRequest` cannot be combined on one line.
+
+## Seat offers
+
+Without offers, the seating system picks seats that meet the limits and the reservation comes back
+with them. With offers, the agent sees a few concrete options first.
+
+<Steps>
+  <Step title="Reserve without seats">
+    ```ts
+    const held = await agent.reserveBasket({ deferAllocation: true, lines: [line] });
+    ```
+    The stock is held; no seats are assigned yet.
+  </Step>
+  <Step title="Ask for offers">
+    ```ts
+    const set = await agent.requestOffers(held.id, { maxOffers: 3 });
+    ```
+    You get up to 5 offers. Each lists real seats, and those seats are held for you for `holdMs`
+    milliseconds, at most 60 seconds. Count down from when the response arrived; `deadline` is
+    Alyte's timestamp for the same moment.
+  </Step>
+  <Step title="Select one">
+    ```ts
+    const reservation = await agent.selectOffer(held.id, set.offers[0].offerId);
+    ```
+    The chosen seats move onto the reservation and the other offers are released. Quote and confirm
+    as usual.
+  </Step>
+</Steps>
+
+```json
+{
+  "offerSetId": "ofs_…", "reservationId": "res_…", "holdMs": 45000,
+  "deadline": "2026-12-01T19:00:45.000Z",
+  "offers": [
+    { "offerId": "ofr_1", "adjacency": "together",
+      "lines": [ { "lineNo": 1, "tierId": "tier_stalls", "status": "filled", "quantity": 4,
+        "seats": [ { "seatId": "A-3-11", "section": "A", "row": "3", "number": "11", "traits": ["aisle"] } ] } ] }
+  ]
+}
+```
+
+Rules worth knowing:
+
+- One offer set is open per buyer and event. Asking again replaces the earlier set and releases
+  its seats.
+- An offer line can be `reduced` or `dropped` when the line allowed it.
+- `offersLimited: true` means the seating system returned fewer offers than you asked for.
+- After the deadline the seats are gone. Never assume an offer; select it and read the answer.
+
+| Refusal | Meaning | What to do |
+|---|---|---|
+| `409 seating_no_matching_seats` | Nothing meets the limits right now. | Tell the buyer, or widen the limits with their agreement. |
+| `409 seating_offer_expired` | The offer or the reservation ran out of time. | Ask for new offers, or reserve again. |
+| `409 seating_offer_unknown` | That offer is not in the current set, or seats were already chosen. | Read the reservation. |
+| `409 seating_offer_in_progress` | A selection for this reservation is already running. | Wait briefly and read the reservation. |
+| `503 seating_unavailable` | The seating system did not answer. | Retry later; nothing was charged. |
+
+### How Alyte's own agent chooses
+
+When the buyer uses the agent Alyte runs, Alyte asks for the offers and chooses between them from
+the buyer's confirmed preferences. The purchase result carries `seatDecision`: which offer was
+chosen, the alternatives, and whether a rule set or a model decided. It contains structured values
+only; nothing the buyer typed is stored.
+
+## Baskets when tickets go on sale
+
+A queued purchase can hold a basket. Send `lines` instead of `tierId` and `quantity`:
+
+```ts
+const { basketLines } = await buyer.watchCapabilities();
+if (basketLines) {
+  await buyer.createWatch({
+    requestId, agentId, expiresAt: '2026-12-01T12:00:00Z',
+    request: { kind: 'ticketing', lines: [
+      { tierId: adultTierId, quantity: 4, minQuantity: 2 },
+      { tierId: parkingTierId, quantity: 1, required: false },
+    ] },
+    condition: { kind: 'available' },
+  });
+}
+```
+
+The lines take the same fields as above, with at most 10 units per line. On the watch that comes
+back, `tierId` and `quantity` describe its first required line; read `lines` for the basket.
+
+## Seeding a basket from your shop
+
+`buyerSessions.mint` can open Alyte's page on one event with the basket already filled in:
+
+```ts
+await merchant.buyerSessions.mint({
+  merchantId, email, eventId,
+  lines: [
+    { tierId: adultTierId, quantity: 4, minQuantity: 2 },
+    { tierId: parkingTierId, quantity: 1, required: false },
+  ],
+});
+```
+
+All lines must belong to that event and to your shop, with no ticket type repeated. `lines` cannot
+be combined with `tierId` or `quantity`. It is a starting point only: the buyer reviews and
+confirms on Alyte's page.
+
+## For the shop's seating system
+
+Seat requests need a venue chart and offers need an offers endpoint, both served by your seating
+system. Declare them on the connection:
+
+```ts
+await merchant.seatingProvider.put(merchantId, {
+  allocateUrl, releaseUrl,
+  chartUrl: 'https://shop.example/alyte/chart',
+  offersUrl: 'https://shop.example/alyte/offers',
+  partialAllocate: true,
+});
+await merchant.seatingProvider.test(merchantId);
+```
+
+`test` pings every URL you set and verifies the connection only when all answer `2xx`. Changing a
+URL, rotating the secret or turning on `partialAllocate` needs a new test. `partialAllocate` says
+your system can return a seated basket with a line reduced or dropped; without it, a seated line
+with `minQuantity` or `required: false` is refused.
+
+The request and answer formats for all four endpoints are in
+[Connect your seating system](/guides/seating-system).

@@ -47,6 +47,7 @@
               "guides/connect-adyen",
               "guides/inventory-and-fulfilment",
               "guides/shared-inventory",
+              "guides/seating-system",
               "guides/access-rules",
       "guides/purchase-limits",
               "guides/webhooks",
@@ -58,6 +59,7 @@
             "group": "For agent developers",
             "pages": [
               "guides/agent-buy",
+              "guides/baskets-and-seat-requests",
               "guides/discovery",
               "guides/signed-requests"
             ]
