@@ -16,6 +16,12 @@ are optional (chart, offers) and unlock [seat requests and seat offers](/guides/
 
 ## Register the endpoints
 
+<Note>
+`merchant.seatingProvider` needs `@alytegen/sdk` 0.9.0 or later. On 0.8.0, call
+`PUT /v1/integration/merchants/{merchantId}/seating-provider` and
+`POST /v1/integration/merchants/{merchantId}/seating-provider/test` directly.
+</Note>
+
 ```ts
 const { seatingProvider, signingSecret } = await merchant.seatingProvider.put(merchantId, {
   allocateUrl: 'https://shop.example/alyte/allocate',
